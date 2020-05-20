@@ -1,5 +1,5 @@
-hash: 05fbbefa5b2786f366826bd6e7e5edebacf704451488e7edfc62fc7bce862a5f
-updated: 2020-05-18T13:18:02.232531345-03:00
+hash: 0a3a11cb0520e27313a3d89c8a76088ef0eae0046531dc5f26b54d1c8e28bd22
+updated: 2020-05-19T21:22:11.411762898-03:00
 imports:
 - name: github.com/rs/zerolog
   version: f1dd50b8c64d79be1392edf1d8fda5cedea4916d
@@ -12,11 +12,6 @@ imports:
   version: 520f9fe195e130976599e3a495044b6b9aabfcd4
 - name: github.com/uol/logh
   version: 04611a676395e92babe6a4e3f5d0aa517ec0b0d5
-- name: github.com/uol/mycenae
-  version: c44d90d5a37734b97a267b1a53402f47a0bbffc4
-  subpackages:
-  - lib/constants
-  - lib/utils
 - name: github.com/uol/scheduler
   version: 3edd7d67bcde61e731d53144259cb50dd0f9931e
 - name: github.com/uol/serializer
@@ -26,13 +21,15 @@ imports:
   - opentsdb
   - serializer
 - name: github.com/uol/timeline
-  version: 8393b959ebb73c24317e3c36831a0575a24f1906
+  version: 05b2095c30d354d4517f12ed131b425541be0626
+  subpackages:
+  - buffer
 - name: golang.org/x/crypto
   version: 06a226fb4e3765ef3f48aa2852b401bc7b98e981
   subpackages:
   - sha3
 - name: golang.org/x/sys
-  version: 1151b9dac4a98d49ef7f80f07ddd826ff51e0b36
+  version: fe76b779f299728f3bd63f77ea2c815504229c3b
   subpackages:
   - cpu
 testImports: []

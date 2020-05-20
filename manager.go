@@ -28,6 +28,8 @@ const (
 	Archive StorageType = "archive"
 
 	cFunction string = "func"
+	cType     string = "type"
+	cHost     string = "host"
 )
 
 // BackendItem - one backend configuration
@@ -47,19 +49,11 @@ type backendManager struct {
 
 // Configuration - configuration
 type Configuration struct {
-	Backends             []BackendItem
-	HashingAlgorithm     hashing.Algorithm
-	HashSize             int
-	TransportBufferSize  int
-	SerializerBufferSize int
-	ReadBufferSize       int
-	DebugInput           bool
-	DebugOutput          bool
-	BatchSendInterval    funks.Duration
-	RequestTimeout       funks.Duration
-	MaxReadTimeout       funks.Duration
-	ReconnectionTimeout  funks.Duration
-	DataTTL              funks.Duration
+	Backends         []BackendItem
+	HashingAlgorithm hashing.Algorithm
+	HashSize         int
+	DataTTL          funks.Duration
+	timeline.OpenTSDBTransportConfig
 }
 
 // TimelineManager - manages the configured number of timeline manager instances
@@ -191,14 +185,15 @@ func (tm *TimelineManager) Start() error {
 		DefaultTransportConfiguration: timeline.DefaultTransportConfiguration{
 			SerializerBufferSize: tm.configuration.SerializerBufferSize,
 			TransportBufferSize:  tm.configuration.TransportBufferSize,
-			BatchSendInterval:    tm.configuration.BatchSendInterval.Duration,
-			RequestTimeout:       tm.configuration.RequestTimeout.Duration,
+			BatchSendInterval:    tm.configuration.BatchSendInterval,
+			RequestTimeout:       tm.configuration.RequestTimeout,
 			DebugInput:           tm.configuration.DebugInput,
 			DebugOutput:          tm.configuration.DebugOutput,
 		},
-		ReadBufferSize:      tm.configuration.ReadBufferSize,
-		MaxReadTimeout:      tm.configuration.MaxReadTimeout.Duration,
-		ReconnectionTimeout: tm.configuration.ReconnectionTimeout.Duration,
+		ReadBufferSize:         tm.configuration.ReadBufferSize,
+		MaxReadTimeout:         tm.configuration.MaxReadTimeout,
+		ReconnectionTimeout:    tm.configuration.ReconnectionTimeout,
+		MaxReconnectionRetries: tm.configuration.MaxReconnectionRetries,
 	}
 
 	tm.backendMap = map[StorageType]backendManager{}
@@ -216,7 +211,7 @@ func (tm *TimelineManager) Start() error {
 		}
 
 		dtc := timeline.DataTransformerConf{
-			CycleDuration:    tm.configuration.Backends[i].CycleDuration.Duration,
+			CycleDuration:    tm.configuration.Backends[i].CycleDuration,
 			HashSize:         tm.configuration.HashSize,
 			HashingAlgorithm: tm.configuration.HashingAlgorithm,
 		}
@@ -245,7 +240,7 @@ func (tm *TimelineManager) Start() error {
 		}
 
 		if tm.configuration.Backends[i].AddHostTag {
-			tags[tagIndex] = "host"
+			tags[tagIndex] = cHost
 			tagIndex++
 			tags[tagIndex] = tm.hostName
 		}
@@ -261,7 +256,7 @@ func (tm *TimelineManager) Start() error {
 		}
 
 		if logh.InfoEnabled {
-			tm.logger.Info().Str("type", string(tm.configuration.Backends[i].Type)).Msgf("timeline manager created: %s:%d (%+v)", b.Host, b.Port, tags)
+			tm.logger.Info().Str(cType, string(tm.configuration.Backends[i].Type)).Msgf("timeline manager created: %s:%d (%+v)", b.Host, b.Port, tags)
 		}
 	}
 
