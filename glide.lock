@@ -1,5 +1,5 @@
-hash: 0a3a11cb0520e27313a3d89c8a76088ef0eae0046531dc5f26b54d1c8e28bd22
-updated: 2020-05-19T21:22:11.411762898-03:00
+hash: daa088f5b5d4edf66a16f5c03f82fb4f70a8965b152071d8da4a1fd778f1a77a
+updated: 2020-05-26T22:46:34.563826924-03:00
 imports:
 - name: github.com/rs/zerolog
   version: f1dd50b8c64d79be1392edf1d8fda5cedea4916d
@@ -25,11 +25,31 @@ imports:
   subpackages:
   - buffer
 - name: golang.org/x/crypto
-  version: 06a226fb4e3765ef3f48aa2852b401bc7b98e981
+  version: 78000ba7a073cafc0278790f6bce552a0f25850e
   subpackages:
   - sha3
 - name: golang.org/x/sys
-  version: fe76b779f299728f3bd63f77ea2c815504229c3b
+  version: 5c8b2ff67527cb88b770f693cebf3799036d8bc0
   subpackages:
   - cpu
-testImports: []
+testImports:
+- name: github.com/davecgh/go-spew
+  version: d8f796af33cc11cb798c1aaeb27a4ebc5099927d
+  subpackages:
+  - spew
+- name: github.com/pmezard/go-difflib
+  version: 5d4384ee4fb2527b0a1256a821ebfc92f91efefc
+  subpackages:
+  - difflib
+- name: github.com/stretchr/testify
+  version: 3ebf1ddaeb260c4b1ae502a01c7844fa8c1fa0e9
+  subpackages:
+  - assert
+- name: github.com/uol/gotest
+  version: 6590c5f29a22708f004b65fa5c8e274090e42412
+  subpackages:
+  - http
+  - telnet
+  - utils
+- name: gopkg.in/yaml.v2
+  version: 0b1645d91e851e735d3e23330303ce81f70adbe3

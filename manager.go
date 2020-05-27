@@ -1,7 +1,6 @@
-package tlmanager
+package timelinemanager
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -9,6 +8,7 @@ import (
 	"github.com/uol/funks"
 	"github.com/uol/hashing"
 	"github.com/uol/logh"
+	jsonSerializer "github.com/uol/serializer/json"
 	"github.com/uol/timeline"
 )
 
@@ -17,8 +17,11 @@ import (
 // @author: rnojiri
 //
 
-// StorageType - the storage type constante
+// StorageType - the storage type constant
 type StorageType string
+
+// TransportType - the transport type constant
+type TransportType string
 
 const (
 	// Normal - normal storage backend
@@ -27,15 +30,32 @@ const (
 	// Archive - archive storage backend
 	Archive StorageType = "archive"
 
-	cFunction string = "func"
-	cType     string = "type"
-	cHost     string = "host"
+	// HTTP - http transport type
+	HTTP TransportType = "http"
+
+	// OpenTSDB - opentsdb transport type
+	OpenTSDB TransportType = "opentsdb"
+
+	cFunction  string = "func"
+	cType      string = "type"
+	cOperation string = "operation"
+	cHost      string = "host"
+
+	cHTTPNumberFormat string = "httpNumberFormat"
+	cHTTPTextFormat   string = "httpTextFormat"
 )
+
+// ErrStorageNotFound - raised when a storage type was not found
+var ErrStorageNotFound error = fmt.Errorf("storage type not found")
+
+// ErrTransportNotSupported - raised when a transport is not supported for the specified storage
+var ErrTransportNotSupported error = fmt.Errorf("transport not supported")
 
 // BackendItem - one backend configuration
 type BackendItem struct {
 	timeline.Backend
-	Type          StorageType
+	Storage       StorageType
+	Type          TransportType
 	CycleDuration funks.Duration
 	AddHostTag    bool
 	CommonTags    map[string]string
@@ -45,6 +65,7 @@ type BackendItem struct {
 type backendManager struct {
 	manager    *timeline.Manager
 	commonTags []interface{}
+	ttype      TransportType
 }
 
 // Configuration - configuration
@@ -54,10 +75,11 @@ type Configuration struct {
 	HashSize         int
 	DataTTL          funks.Duration
 	timeline.OpenTSDBTransportConfig
+	timeline.HTTPTransportConfig
 }
 
-// TimelineManager - manages the configured number of timeline manager instances
-type TimelineManager struct {
+// Instance - manages the configured number of timeline manager instances
+type Instance struct {
 	backendMap    map[StorageType]backendManager
 	logger        *logh.ContextualLogger
 	hostName      string
@@ -66,7 +88,7 @@ type TimelineManager struct {
 }
 
 // New - creates a new instance
-func New(configuration *Configuration) (*TimelineManager, error) {
+func New(configuration *Configuration) (*Instance, error) {
 
 	if len(configuration.Backends) == 0 {
 		return nil, fmt.Errorf("no backends configured")
@@ -83,7 +105,7 @@ func New(configuration *Configuration) (*TimelineManager, error) {
 		return nil, err
 	}
 
-	return &TimelineManager{
+	return &Instance{
 		logger:        logger,
 		hostName:      hostName,
 		configuration: configuration,
@@ -91,116 +113,72 @@ func New(configuration *Configuration) (*TimelineManager, error) {
 }
 
 // storageTypeNotFound - logs the storage type not found error
-func (tm *TimelineManager) storageTypeNotFound(function string, stype StorageType, logErr, returnErr bool) error {
+func (tm *Instance) storageTypeNotFound(function string, stype StorageType) error {
 
-	msg := fmt.Sprintf("storage type is not configured: %s", stype)
-
-	if logErr && logh.ErrorEnabled {
+	if logh.ErrorEnabled {
 		ev := tm.logger.Error()
 		if len(function) > 0 {
 			ev = ev.Str(cFunction, function)
 		}
 
-		ev.Msg(msg)
+		ev.Msgf("storage type is not configured: %s", stype)
 	}
 
-	if returnErr {
-		return errors.New(msg)
-	}
-
-	return nil
-}
-
-// Flatten - performs a flatten operation
-func (tm *TimelineManager) Flatten(caller string, stype StorageType, op timeline.FlatOperation, value float64, metric string, tags ...interface{}) {
-
-	if !tm.ready {
-		return
-	}
-
-	backend, ok := tm.backendMap[stype]
-	if !ok {
-		tm.storageTypeNotFound(caller, stype, true, false)
-		return
-	}
-
-	tags = append(tags, backend.commonTags...)
-
-	err := backend.manager.FlattenOpenTSDB(op, value, time.Now().Unix(), metric, tags...)
-	if err != nil {
-		if logh.ErrorEnabled {
-			ev := tm.logger.Error().Err(err)
-			if len(caller) > 0 {
-				ev = ev.Str(cFunction, caller)
-			}
-			ev.Msg("flattening operation error")
-		}
-	}
-}
-
-// AccumulateHashedData - accumulates a hashed data
-func (tm *TimelineManager) AccumulateHashedData(stype StorageType, hash string) (bool, error) {
-
-	backend, ok := tm.backendMap[stype]
-	if !ok {
-		return false, tm.storageTypeNotFound("", stype, false, true)
-	}
-
-	err := backend.manager.IncrementAccumulatedData(hash)
-	if err != nil {
-		if err == timeline.ErrNotStored {
-			return false, nil
-		}
-
-		return false, err
-	}
-
-	return true, nil
-}
-
-// StoreHashedData - stores the hashed data
-func (tm *TimelineManager) StoreHashedData(stype StorageType, hash string, ttl time.Duration, metric string, tags ...interface{}) error {
-
-	backend, ok := tm.backendMap[stype]
-	if !ok {
-		return tm.storageTypeNotFound("", stype, false, true)
-	}
-
-	tags = append(tags, backend.commonTags...)
-
-	return backend.manager.StoreHashedDataToAccumulateOpenTSDB(
-		hash,
-		ttl,
-		1,
-		time.Now().Unix(),
-		metric,
-		tags...,
-	)
+	return ErrStorageNotFound
 }
 
 // Start - starts the timeline manager
-func (tm *TimelineManager) Start() error {
-
-	tc := timeline.OpenTSDBTransportConfig{
-		DefaultTransportConfiguration: timeline.DefaultTransportConfiguration{
-			SerializerBufferSize: tm.configuration.SerializerBufferSize,
-			TransportBufferSize:  tm.configuration.TransportBufferSize,
-			BatchSendInterval:    tm.configuration.BatchSendInterval,
-			RequestTimeout:       tm.configuration.RequestTimeout,
-			DebugInput:           tm.configuration.DebugInput,
-			DebugOutput:          tm.configuration.DebugOutput,
-		},
-		ReadBufferSize:         tm.configuration.ReadBufferSize,
-		MaxReadTimeout:         tm.configuration.MaxReadTimeout,
-		ReconnectionTimeout:    tm.configuration.ReconnectionTimeout,
-		MaxReconnectionRetries: tm.configuration.MaxReconnectionRetries,
-	}
+func (tm *Instance) Start() error {
 
 	tm.backendMap = map[StorageType]backendManager{}
 
-	t, err := timeline.NewOpenTSDBTransport(&tc)
-	if err != nil {
-		return err
+	var createOpenTSDBTransport, createHTTPTransport bool
+
+	for i := 0; i < len(tm.configuration.Backends); i++ {
+
+		if tm.configuration.Backends[i].Type == OpenTSDB {
+			createOpenTSDBTransport = true
+		} else if tm.configuration.Backends[i].Type == HTTP {
+			createHTTPTransport = true
+		} else {
+			return fmt.Errorf("transport type %s is undefined", tm.configuration.Backends[i].Type)
+		}
+	}
+
+	var opentsdbTransport *timeline.OpenTSDBTransport
+	var httpTransport *timeline.HTTPTransport
+	var err error
+
+	if createOpenTSDBTransport {
+		opentsdbTransport, err = timeline.NewOpenTSDBTransport(&tm.configuration.OpenTSDBTransportConfig)
+		if err != nil {
+			return err
+		}
+	}
+
+	if createHTTPTransport {
+		httpTransport, err = timeline.NewHTTPTransport(&tm.configuration.HTTPTransportConfig)
+		if err != nil {
+			return err
+		}
+
+		httpTransport.AddJSONMapping(
+			cHTTPNumberFormat,
+			jsonSerializer.NumberPoint{},
+			cMetric,
+			cValue,
+			cTimestamp,
+			cTags,
+		)
+
+		httpTransport.AddJSONMapping(
+			cHTTPTextFormat,
+			jsonSerializer.TextPoint{},
+			cMetric,
+			cText,
+			cTimestamp,
+			cTags,
+		)
 	}
 
 	for i := 0; i < len(tm.configuration.Backends); i++ {
@@ -219,7 +197,14 @@ func (tm *TimelineManager) Start() error {
 		f := timeline.NewFlattener(&dtc)
 		a := timeline.NewAccumulator(&dtc)
 
-		manager, err := timeline.NewManager(t, f, a, &b)
+		var manager *timeline.Manager
+
+		if tm.configuration.Backends[i].Type == OpenTSDB {
+			manager, err = timeline.NewManager(opentsdbTransport, f, a, &b)
+		} else {
+			manager, err = timeline.NewManager(httpTransport, f, a, &b)
+		}
+
 		if err != nil {
 			return err
 		}
@@ -250,9 +235,10 @@ func (tm *TimelineManager) Start() error {
 			return err
 		}
 
-		tm.backendMap[tm.configuration.Backends[i].Type] = backendManager{
+		tm.backendMap[tm.configuration.Backends[i].Storage] = backendManager{
 			manager:    manager,
 			commonTags: tags,
+			ttype:      tm.configuration.Backends[i].Type,
 		}
 
 		if logh.InfoEnabled {
@@ -270,7 +256,7 @@ func (tm *TimelineManager) Start() error {
 }
 
 // Shutdown - shuts down the timeline manager
-func (tm *TimelineManager) Shutdown() {
+func (tm *Instance) Shutdown() {
 
 	for _, v := range tm.backendMap {
 		v.manager.Shutdown()
@@ -279,4 +265,9 @@ func (tm *TimelineManager) Shutdown() {
 	if logh.InfoEnabled {
 		tm.logger.Info().Msg("timeline manager was shutdown")
 	}
+}
+
+// GetConfiguredDataTTL - returns the configured data ttl
+func (tm *Instance) GetConfiguredDataTTL() time.Duration {
+	return tm.configuration.DataTTL.Duration
 }
