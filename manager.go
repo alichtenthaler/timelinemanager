@@ -74,8 +74,33 @@ type Configuration struct {
 	HashingAlgorithm hashing.Algorithm
 	HashSize         int
 	DataTTL          funks.Duration
-	timeline.OpenTSDBTransportConfig
-	timeline.HTTPTransportConfig
+	timeline.DefaultTransportConfiguration
+	OpenTSDBTransport *timeline.OpenTSDBTransportConfig
+	HTTPTransport     *timeline.HTTPTransportConfig
+}
+
+// Validate - validates the configuration
+func (c *Configuration) Validate() error {
+
+	if len(c.Backends) == 0 {
+		return fmt.Errorf("no backends configured")
+	}
+
+	var hasOpenTSDB, hasHTTP bool
+
+	if hasOpenTSDB = c.OpenTSDBTransport != nil; hasOpenTSDB {
+		c.OpenTSDBTransport.DefaultTransportConfiguration = c.DefaultTransportConfiguration
+	}
+
+	if hasHTTP = c.HTTPTransport != nil; hasHTTP {
+		c.HTTPTransport.DefaultTransportConfiguration = c.DefaultTransportConfiguration
+	}
+
+	if !hasOpenTSDB && !hasHTTP {
+		return fmt.Errorf("no transports configured")
+	}
+
+	return nil
 }
 
 // Instance - manages the configured number of timeline manager instances
@@ -89,10 +114,6 @@ type Instance struct {
 
 // New - creates a new instance
 func New(configuration *Configuration) (*Instance, error) {
-
-	if len(configuration.Backends) == 0 {
-		return nil, fmt.Errorf("no backends configured")
-	}
 
 	logger := logh.CreateContextualLogger("pkg", "stats")
 
@@ -150,14 +171,14 @@ func (tm *Instance) Start() error {
 	var err error
 
 	if createOpenTSDBTransport {
-		opentsdbTransport, err = timeline.NewOpenTSDBTransport(&tm.configuration.OpenTSDBTransportConfig)
+		opentsdbTransport, err = timeline.NewOpenTSDBTransport(tm.configuration.OpenTSDBTransport)
 		if err != nil {
 			return err
 		}
 	}
 
 	if createHTTPTransport {
-		httpTransport, err = timeline.NewHTTPTransport(&tm.configuration.HTTPTransportConfig)
+		httpTransport, err = timeline.NewHTTPTransport(tm.configuration.HTTPTransport)
 		if err != nil {
 			return err
 		}

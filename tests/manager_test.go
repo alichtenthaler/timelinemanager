@@ -3,10 +3,12 @@ package timelinemanager_test
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 	"regexp"
 	"testing"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/assert"
 	"github.com/uol/funks"
 	gotesthttp "github.com/uol/gotest/http"
@@ -102,7 +104,7 @@ func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinema
 		HashingAlgorithm: hashing.SHAKE128,
 		HashSize:         12,
 		DataTTL:          funks.Duration{Duration: time.Minute},
-		HTTPTransportConfig: timeline.HTTPTransportConfig{
+		HTTPTransport: &timeline.HTTPTransportConfig{
 			DefaultTransportConfiguration: dtc,
 			ExpectedResponseStatus:        200,
 			Method:                        "POST",
@@ -110,7 +112,7 @@ func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinema
 			TimestampProperty:             "timestamp",
 			ValueProperty:                 "value",
 		},
-		OpenTSDBTransportConfig: timeline.OpenTSDBTransportConfig{
+		OpenTSDBTransport: &timeline.OpenTSDBTransportConfig{
 			DefaultTransportConfiguration: dtc,
 			MaxReadTimeout:                funks.Duration{Duration: requestTimeoutS * time.Second},
 			MaxReconnectionRetries:        3,
@@ -444,4 +446,70 @@ func TestBothTransportsWithErrors(t *testing.T) {
 	testHTTPMessage(t, "TestBothTransportsWithErrors", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], false)
 	testOpenTSDBMessage(t, "TestBothTransportsWithErrors", tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, configs[0])
 	testUnknownTransport(t, "TestBothTransportsWithErrors", tm, timelinemanager.Normal, timelinemanager.RawOpenTSDB, true, true)
+}
+
+// TestTOMLConfiguration - tests loading the configuration as TOML
+func TestTOMLConfiguration(t *testing.T) {
+
+	conf := timelinemanager.Configuration{}
+
+	_, err := toml.DecodeFile("./config.toml", &conf)
+	if !assert.NoError(t, err, "no error expected reading the toml") {
+		return
+	}
+
+	err = conf.Validate()
+	if !assert.NoError(t, err, "no error expected validating the configuration") {
+		return
+	}
+
+	// HashingAlgorithm hashing.Algorithm
+	// HashSize         int
+	// DataTTL          funks.Duration
+
+	assert.Equal(t, gotest.MustParseDuration("2m"), conf.DataTTL.Duration, "DataTTL")
+	assert.Equal(t, 6, conf.HashSize, "HashSize")
+	assert.Equal(t, hashing.SHAKE128, conf.HashingAlgorithm, "HashingAlgorithm")
+
+	// TransportBufferSize  int
+	// BatchSendInterval    funks.Duration
+	// RequestTimeout       funks.Duration
+	// SerializerBufferSize int
+	// DebugInput           bool
+	// DebugOutput          bool
+	// TimeBetweenBatches   funks.Duration
+
+	assert.Equal(t, 1024, conf.TransportBufferSize, "TransportBufferSize")
+	assert.Equal(t, gotest.MustParseDuration("30s"), conf.BatchSendInterval.Duration, "BatchSendInterval")
+	assert.Equal(t, gotest.MustParseDuration("5s"), conf.RequestTimeout.Duration, "RequestTimeout")
+	assert.Equal(t, 2048, conf.SerializerBufferSize, "SerializerBufferSize")
+	assert.Equal(t, false, conf.DebugInput, "DebugInput")
+	assert.Equal(t, true, conf.DebugOutput, "DebugOutput")
+	assert.Equal(t, gotest.MustParseDuration("10ms"), conf.TimeBetweenBatches.Duration, "TimeBetweenBatches")
+
+	// ReadBufferSize         int
+	// MaxReadTimeout         funks.Duration
+	// ReconnectionTimeout    funks.Duration
+	// MaxReconnectionRetries int
+	// DisconnectAfterWrites  bool
+
+	assert.True(t, reflect.DeepEqual(conf.DefaultTransportConfiguration, conf.OpenTSDBTransport.DefaultTransportConfiguration), "expected same object")
+	assert.Equal(t, gotest.MustParseDuration("100ms"), conf.OpenTSDBTransport.MaxReadTimeout.Duration, "MaxReadTimeout")
+	assert.Equal(t, 5, conf.OpenTSDBTransport.MaxReconnectionRetries, "MaxReconnectionRetries")
+	assert.Equal(t, 64, conf.OpenTSDBTransport.ReadBufferSize, "ReadBufferSize")
+	assert.Equal(t, gotest.MustParseDuration("3s"), conf.OpenTSDBTransport.ReconnectionTimeout.Duration, "ReconnectionTimeout")
+	assert.Equal(t, true, conf.OpenTSDBTransport.DisconnectAfterWrites, "DisconnectAfterWrites")
+
+	// ServiceEndpoint        string
+	// Method                 string
+	// ExpectedResponseStatus int
+	// TimestampProperty      string
+	// ValueProperty          string
+
+	assert.True(t, reflect.DeepEqual(conf.DefaultTransportConfiguration, conf.HTTPTransport.DefaultTransportConfiguration), "expected same object")
+	assert.Equal(t, "/api/put", conf.HTTPTransport.ServiceEndpoint, "ServiceEndpoint")
+	assert.Equal(t, "POST", conf.HTTPTransport.Method, "Method")
+	assert.Equal(t, 204, conf.HTTPTransport.ExpectedResponseStatus, "ExpectedResponseStatus")
+	assert.Equal(t, "timestamp", conf.HTTPTransport.TimestampProperty, "TimestampProperty")
+	assert.Equal(t, "value", conf.HTTPTransport.ValueProperty, "ValueProperty")
 }
