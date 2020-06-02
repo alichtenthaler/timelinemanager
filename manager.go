@@ -117,6 +117,14 @@ func New(configuration *Configuration) (*Instance, error) {
 
 	logger := logh.CreateContextualLogger("pkg", "stats")
 
+	if configuration == nil {
+		return nil, fmt.Errorf("configuration is null")
+	}
+
+	if err := configuration.Validate(); err != nil {
+		return nil, err
+	}
+
 	hostName, err := os.Hostname()
 	if err != nil {
 		if logh.ErrorEnabled {
