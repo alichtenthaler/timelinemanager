@@ -1,0 +1,77 @@
+# HashingAlgorithm hashing.Algorithm
+hashingAlgorithm = "shake128"
+# HashSize         int
+hashSize = 6
+# DataTTL          funks.Duration
+dataTTL = "2m"
+# TransportBufferSize  int
+transportBufferSize = 1024
+# BatchSendInterval    funks.Duration
+batchSendInterval = "30s"
+# RequestTimeout       funks.Duration
+requestTimeout = "5s"
+# SerializerBufferSize int
+serializerBufferSize = 2048
+# DebugInput           bool
+debugInput = false
+# DebugOutput          bool
+debugOutput = true
+# TimeBetweenBatches
+TimeBetweenBatches = "10ms"
+
+[openTSDBTransport]
+# ReadBufferSize         int
+readBufferSize = 64
+# MaxReadTimeout         funks.Duration
+maxReadTimeout = "100ms"
+# ReconnectionTimeout    funks.Duration
+reconnectionTimeout = "3s"
+# MaxReconnectionRetries int
+maxReconnectionRetries = 5
+# DisconnectAfterWrites
+disconnectAfterWrites = true
+
+[httpTransport]
+# ServiceEndpoint        string
+serviceEndpoint = "/api/put"
+# Method                 string
+method = "POST"
+# ExpectedResponseStatus int
+expectedResponseStatus = 204
+# TimestampProperty      string
+timestampProperty = "timestamp"
+# ValueProperty          string
+valueProperty = "value"
+
+[[backends]]
+addHostTag    = true
+cycleDuration = "15s"
+host          = "loghost"
+port          = 8123
+type          = "normal"
+    [backends.commonTags]
+    ksid    = "pdeng_stats"
+    service = "mycenae"
+    ttl     = "1"
+
+[[backends]]
+addHostTag    = true
+cycleDuration = "15s"
+host          = "loghost"
+port          = 8123
+type          = "archive"
+    [backends.commonTags]
+    ksid    = "pdeng_stats"
+    service = "mycenae"
+    ttl     = "1"
+
+[[backends]]
+addHostTag    = false
+cycleDuration = "15s"
+host          = "loghost"
+port          = 8123
+type          = "validation"
+    [backends.commonTags]
+    ksid    = "pdeng_validation_errors"
+    service = "mycenae"
+    ttl     = "1"
