@@ -48,7 +48,8 @@ addHostTag    = true
 cycleDuration = "15s"
 host          = "loghost"
 port          = 8123
-type          = "normal"
+storage       = "normal"
+type          = "opentsdb"
     [backends.commonTags]
     ksid    = "pdeng_stats"
     service = "mycenae"
@@ -59,7 +60,8 @@ addHostTag    = true
 cycleDuration = "15s"
 host          = "loghost"
 port          = 8123
-type          = "archive"
+storage       = "archive"
+type          = "opentsdb"
     [backends.commonTags]
     ksid    = "pdeng_stats"
     service = "mycenae"
@@ -70,7 +72,8 @@ addHostTag    = false
 cycleDuration = "15s"
 host          = "loghost"
 port          = 8123
-type          = "validation"
+storage       = "validation"
+type          = "opentsdb"
     [backends.commonTags]
     ksid    = "pdeng_validation_errors"
     service = "mycenae"
