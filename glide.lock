@@ -1,5 +1,5 @@
-hash: b8f5bdef1f14796e09e0b175d52a88eb04542c6232fb08c7a663157d6e05b120
-updated: 2020-06-02T23:32:43.425110297-03:00
+hash: 01cb86e01e16560de40b22848249be9a4bf0aab8925d32db3f4a8fe814ede0d2
+updated: 2020-06-03T14:29:02.310168499-03:00
 imports:
 - name: github.com/rs/zerolog
   version: f1dd50b8c64d79be1392edf1d8fda5cedea4916d
@@ -21,7 +21,7 @@ imports:
   - opentsdb
   - serializer
 - name: github.com/uol/timeline
-  version: a3b25a56e9e0ebbbc4fa9085cd38ec49815ec1c3
+  version: 052031c51392b8f70362b433b6ad537194fd1b3c
   subpackages:
   - buffer
 - name: golang.org/x/crypto

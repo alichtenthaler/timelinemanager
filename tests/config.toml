@@ -20,8 +20,6 @@ debugOutput = true
 timeBetweenBatches = "10ms"
 # PrintStackOnError    bool
 printStackOnError = true
-# Name                 string
-name = "main"
 
 [openTSDBTransport]
 # ReadBufferSize         int
@@ -34,7 +32,6 @@ reconnectionTimeout = "3s"
 maxReconnectionRetries = 5
 # DisconnectAfterWrites
 disconnectAfterWrites = true
-
 
 [httpTransport]
 # ServiceEndpoint        string

@@ -549,7 +549,6 @@ func TestTOMLConfiguration(t *testing.T) {
 	assert.Equal(t, gotest.MustParseDuration("3s"), conf.OpenTSDBTransport.ReconnectionTimeout.Duration, "ReconnectionTimeout")
 	assert.Equal(t, true, conf.OpenTSDBTransport.DisconnectAfterWrites, "DisconnectAfterWrites")
 	assert.Equal(t, true, conf.OpenTSDBTransport.PrintStackOnError, "PrintStackOnError")
-	assert.Equal(t, "main", conf.OpenTSDBTransport.Name, "Name")
 
 	// ServiceEndpoint        string
 	// Method                 string
@@ -564,7 +563,6 @@ func TestTOMLConfiguration(t *testing.T) {
 	assert.Equal(t, "timestamp", conf.HTTPTransport.TimestampProperty, "TimestampProperty")
 	assert.Equal(t, "value", conf.HTTPTransport.ValueProperty, "ValueProperty")
 	assert.Equal(t, true, conf.HTTPTransport.PrintStackOnError, "PrintStackOnError")
-	assert.Equal(t, "main", conf.OpenTSDBTransport.Name, "Name")
 
 	var host1Found, host2Found, host3Found bool
 

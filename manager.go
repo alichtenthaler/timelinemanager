@@ -169,8 +169,8 @@ func (tm *Instance) Start() error {
 		}
 
 		name := fmt.Sprintf(
-			"%s - %s:%d",
-			tm.configuration.DefaultTransportConfiguration.Name,
+			"%s-%s:%d",
+			tm.configuration.Backends[i].Storage,
 			b.Host,
 			b.Port,
 		)
