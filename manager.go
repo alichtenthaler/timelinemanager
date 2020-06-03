@@ -161,55 +161,6 @@ func (tm *Instance) Start() error {
 
 	tm.backendMap = map[StorageType]backendManager{}
 
-	var createOpenTSDBTransport, createHTTPTransport bool
-
-	for i := 0; i < len(tm.configuration.Backends); i++ {
-
-		if tm.configuration.Backends[i].Type == OpenTSDB {
-			createOpenTSDBTransport = true
-		} else if tm.configuration.Backends[i].Type == HTTP {
-			createHTTPTransport = true
-		} else {
-			return fmt.Errorf("transport type %s is undefined", tm.configuration.Backends[i].Type)
-		}
-	}
-
-	var opentsdbTransport *timeline.OpenTSDBTransport
-	var httpTransport *timeline.HTTPTransport
-	var err error
-
-	if createOpenTSDBTransport {
-		opentsdbTransport, err = timeline.NewOpenTSDBTransport(tm.configuration.OpenTSDBTransport)
-		if err != nil {
-			return err
-		}
-	}
-
-	if createHTTPTransport {
-		httpTransport, err = timeline.NewHTTPTransport(tm.configuration.HTTPTransport)
-		if err != nil {
-			return err
-		}
-
-		httpTransport.AddJSONMapping(
-			cHTTPNumberFormat,
-			jsonSerializer.NumberPoint{},
-			cMetric,
-			cValue,
-			cTimestamp,
-			cTags,
-		)
-
-		httpTransport.AddJSONMapping(
-			cHTTPTextFormat,
-			jsonSerializer.TextPoint{},
-			cMetric,
-			cText,
-			cTimestamp,
-			cTags,
-		)
-	}
-
 	for i := 0; i < len(tm.configuration.Backends); i++ {
 
 		b := timeline.Backend{
@@ -217,21 +168,67 @@ func (tm *Instance) Start() error {
 			Port: tm.configuration.Backends[i].Port,
 		}
 
+		name := fmt.Sprintf(
+			"%s - %s:%d",
+			tm.configuration.DefaultTransportConfiguration.Name,
+			b.Host,
+			b.Port,
+		)
+
+		tm.configuration.DefaultTransportConfiguration.Name = name
+
 		dtc := timeline.DataTransformerConf{
 			CycleDuration:    tm.configuration.Backends[i].CycleDuration,
 			HashSize:         tm.configuration.HashSize,
 			HashingAlgorithm: tm.configuration.HashingAlgorithm,
+			Name:             name,
 		}
 
 		f := timeline.NewFlattener(&dtc)
 		a := timeline.NewAccumulator(&dtc)
 
 		var manager *timeline.Manager
+		var err error
 
 		if tm.configuration.Backends[i].Type == OpenTSDB {
+
+			opentsdbTransport, err := timeline.NewOpenTSDBTransport(tm.configuration.OpenTSDBTransport)
+			if err != nil {
+				return err
+			}
+
 			manager, err = timeline.NewManager(opentsdbTransport, f, a, &b)
-		} else {
+
+		} else if tm.configuration.Backends[i].Type == HTTP {
+
+			httpTransport, err := timeline.NewHTTPTransport(tm.configuration.HTTPTransport)
+			if err != nil {
+				return err
+			}
+
+			httpTransport.AddJSONMapping(
+				cHTTPNumberFormat,
+				jsonSerializer.NumberPoint{},
+				cMetric,
+				cValue,
+				cTimestamp,
+				cTags,
+			)
+
+			httpTransport.AddJSONMapping(
+				cHTTPTextFormat,
+				jsonSerializer.TextPoint{},
+				cMetric,
+				cText,
+				cTimestamp,
+				cTags,
+			)
+
 			manager, err = timeline.NewManager(httpTransport, f, a, &b)
+
+		} else {
+
+			err = fmt.Errorf("transport type %s is undefined", tm.configuration.Backends[i].Type)
 		}
 
 		if err != nil {
@@ -259,15 +256,19 @@ func (tm *Instance) Start() error {
 			tags[tagIndex] = tm.hostName
 		}
 
-		err = manager.Start()
-		if err != nil {
-			return err
+		if _, exists := tm.backendMap[tm.configuration.Backends[i].Storage]; exists {
+			return fmt.Errorf(`backend named "%s" is registered more than one time`, tm.configuration.Backends[i].Storage)
 		}
 
 		tm.backendMap[tm.configuration.Backends[i].Storage] = backendManager{
 			manager:    manager,
 			commonTags: tags,
 			ttype:      tm.configuration.Backends[i].Type,
+		}
+
+		err = manager.Start()
+		if err != nil {
+			return err
 		}
 
 		if logh.InfoEnabled {

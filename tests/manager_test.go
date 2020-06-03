@@ -46,7 +46,7 @@ func (sc *storageConfig) Close() {
 	}
 }
 
-func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinemanager.Instance, bool) {
+func createTestConf(configs ...*storageConfig) *timelinemanager.Configuration {
 
 	backends := []timelinemanager.BackendItem{}
 
@@ -75,7 +75,15 @@ func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinema
 
 		} else if conf.ttype == timelinemanager.OpenTSDB {
 
-			conf.telnetServer, conf.port = gotesttelnet.NewServer(testHost, channelSize, bufferSize, time.Second, true)
+			conf.telnetServer, conf.port = gotesttelnet.NewServer(
+				&gotesttelnet.Configuration{
+					Host:               testHost,
+					MessageChannelSize: channelSize,
+					ReadBufferSize:     bufferSize,
+					ReadTimeout:        requestTimeoutS * time.Second,
+				},
+				true,
+			)
 
 		} else {
 			panic("transport type is not defined")
@@ -92,37 +100,40 @@ func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinema
 		})
 	}
 
-	dtc := timeline.DefaultTransportConfiguration{
-		SerializerBufferSize: bufferSize,
-		BatchSendInterval:    funks.Duration{Duration: cycleDurationMS * time.Millisecond},
-		RequestTimeout:       funks.Duration{Duration: requestTimeoutS * time.Second},
-		TransportBufferSize:  bufferSize,
-	}
-
 	c := &timelinemanager.Configuration{
 		Backends:         backends,
 		HashingAlgorithm: hashing.SHAKE128,
 		HashSize:         12,
 		DataTTL:          funks.Duration{Duration: time.Minute},
+		DefaultTransportConfiguration: timeline.DefaultTransportConfiguration{
+			SerializerBufferSize: bufferSize,
+			BatchSendInterval:    funks.Duration{Duration: cycleDurationMS * time.Millisecond},
+			RequestTimeout:       funks.Duration{Duration: requestTimeoutS * time.Second},
+			TransportBufferSize:  bufferSize,
+			TimeBetweenBatches:   funks.Duration{Duration: 10 * time.Millisecond},
+		},
 		HTTPTransport: &timeline.HTTPTransportConfig{
-			DefaultTransportConfiguration: dtc,
-			ExpectedResponseStatus:        200,
-			Method:                        "POST",
-			ServiceEndpoint:               "/post",
-			TimestampProperty:             "timestamp",
-			ValueProperty:                 "value",
+			ExpectedResponseStatus: 200,
+			Method:                 "POST",
+			ServiceEndpoint:        "/post",
+			TimestampProperty:      "timestamp",
+			ValueProperty:          "value",
 		},
 		OpenTSDBTransport: &timeline.OpenTSDBTransportConfig{
-			DefaultTransportConfiguration: dtc,
-			MaxReadTimeout:                funks.Duration{Duration: requestTimeoutS * time.Second},
-			MaxReconnectionRetries:        3,
-			ReadBufferSize:                bufferSize,
-			ReconnectionTimeout:           funks.Duration{Duration: 100 * time.Millisecond},
+			MaxReadTimeout:         funks.Duration{Duration: requestTimeoutS * time.Second},
+			MaxReconnectionRetries: 3,
+			ReadBufferSize:         bufferSize,
+			ReconnectionTimeout:    funks.Duration{Duration: 100 * time.Millisecond},
 		},
 	}
 
-	tm, err := timelinemanager.New(c)
-	if assert.NoError(t, err, "expected no error creating the timeline manager") {
+	return c
+}
+
+func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinemanager.Instance, bool) {
+
+	tm, err := timelinemanager.New(createTestConf(configs...))
+	if !assert.NoError(t, err, "expected no error creating the timeline manager") {
 		return nil, false
 	}
 
@@ -131,7 +142,7 @@ func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinema
 	}
 
 	err = tm.Start()
-	if assert.NoError(t, err, "expected no error starting the timeline manager") {
+	if !assert.NoError(t, err, "expected no error starting the timeline manager") {
 		return nil, false
 	}
 
@@ -139,6 +150,8 @@ func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinema
 }
 
 func closeAll(tm *timelinemanager.Instance, confs []*storageConfig) {
+
+	<-time.After(requestTimeoutS * time.Second)
 
 	if tm != nil {
 		tm.Shutdown()
@@ -237,11 +250,11 @@ func testSendHTTPMessage(
 
 	metric = fmt.Sprintf("metric_%d", gotest.RandomInt(1, 100))
 
-	tag1K := fmt.Sprintf("tag1_%d", gotest.RandomInt(1, 100))
-	tag2K := fmt.Sprintf("tag2_%d", gotest.RandomInt(1, 100))
+	tag1K := fmt.Sprintf("tag1K_%d", gotest.RandomInt(1, 100))
+	tag2K := fmt.Sprintf("tag2K_%d", gotest.RandomInt(1, 100))
 
-	tag1V := fmt.Sprintf("val1_%d", gotest.RandomInt(1, 100))
-	tag2V := fmt.Sprintf("val2_%d", gotest.RandomInt(1, 100))
+	tag1V := fmt.Sprintf("tag1V_%d", gotest.RandomInt(1, 100))
+	tag2V := fmt.Sprintf("tag2V_%d", gotest.RandomInt(1, 100))
 
 	var err error
 
@@ -289,8 +302,8 @@ func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance
 
 		return assert.True(t,
 			regexp.MustCompile(
-				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V[0-9]+"\},"timestamp":[0-9]{10},"value":%d\}\]`,
-					metric, value)).
+				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"value":%d?(\.[0]+)\}\]`,
+					metric, value.(int))).
 				MatchString(message.Body),
 			"expected same message",
 		)
@@ -299,8 +312,8 @@ func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance
 
 		return assert.True(t,
 			regexp.MustCompile(
-				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V[0-9]+"\},"timestamp":[0-9]{10},"text":"%s"\}\]`,
-					metric, value)).
+				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"text":"%s"\}\]`,
+					metric, value.(string))).
 				MatchString(message.Body),
 			"expected same message",
 		)
@@ -413,11 +426,42 @@ func TestBothTransports(t *testing.T) {
 
 	testHTTPMessage(t, "TestBothTransports", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], true)
 	testHTTPMessage(t, "TestBothTransports", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], false)
-	testOpenTSDBMessage(t, "TestBothTransports", tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, configs[0])
+	testOpenTSDBMessage(t, "TestBothTransports", tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, configs[1])
 }
 
 // TestBothTransportsWithErrors - creates a new manager and tests http and opentsdb integration (some errors)
 func TestBothTransportsWithErrors(t *testing.T) {
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.Archive,
+			ttype: timelinemanager.HTTP,
+		},
+		{
+			stype: timelinemanager.Normal,
+			ttype: timelinemanager.OpenTSDB,
+		},
+	}
+
+	tm, ok := createTimelineManager(t, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	funcName := "TestBothTransportsWithErrors"
+
+	testUnknownStorage(t, funcName, tm, customStorage, timelinemanager.RawHTTP)
+	testHTTPMessage(t, funcName, tm, timelinemanager.Archive, timelinemanager.RawHTTP, configs[0], true)
+	testUnknownTransport(t, funcName, tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, true, true)
+	testHTTPMessage(t, funcName, tm, timelinemanager.Archive, timelinemanager.RawHTTP, configs[0], false)
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.Normal, timelinemanager.RawOpenTSDB, configs[1])
+	testUnknownTransport(t, funcName, tm, timelinemanager.Normal, timelinemanager.RawHTTP, true, true)
+}
+
+// TestSameBackendConfiguration - creates a new manager duplicating some backend
+func TestSameBackendConfiguration(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
@@ -434,19 +478,24 @@ func TestBothTransportsWithErrors(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
-	if !ok {
+	tm, err := timelinemanager.New(createTestConf(configs...))
+	if !assert.NoError(t, err, "expected no error creating the timeline manager") {
 		return
 	}
 
-	defer closeAll(tm, configs)
+	if !assert.NotNil(t, tm, "expected a valid instance") {
+		return
+	}
 
-	testHTTPMessage(t, "TestBothTransportsWithErrors", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], true)
-	testUnknownStorage(t, "TestBothTransportsWithErrors", tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB)
-	testHTTPMessage(t, "TestBothTransportsWithErrors", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], false)
-	testOpenTSDBMessage(t, "TestBothTransportsWithErrors", tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, configs[0])
-	testUnknownTransport(t, "TestBothTransportsWithErrors", tm, timelinemanager.Normal, timelinemanager.RawOpenTSDB, true, true)
+	err = tm.Start()
+	if !assert.Error(t, err, "expected an error starting the timeline manager") {
+		return
+	}
+
+	assert.Equal(t, `backend named "archive" is registered more than one time`, err.Error(), "expected a specific error")
 }
+
+const customStorage timelinemanager.StorageType = "custom"
 
 // TestTOMLConfiguration - tests loading the configuration as TOML
 func TestTOMLConfiguration(t *testing.T) {
@@ -499,6 +548,8 @@ func TestTOMLConfiguration(t *testing.T) {
 	assert.Equal(t, 64, conf.OpenTSDBTransport.ReadBufferSize, "ReadBufferSize")
 	assert.Equal(t, gotest.MustParseDuration("3s"), conf.OpenTSDBTransport.ReconnectionTimeout.Duration, "ReconnectionTimeout")
 	assert.Equal(t, true, conf.OpenTSDBTransport.DisconnectAfterWrites, "DisconnectAfterWrites")
+	assert.Equal(t, true, conf.OpenTSDBTransport.PrintStackOnError, "PrintStackOnError")
+	assert.Equal(t, "main", conf.OpenTSDBTransport.Name, "Name")
 
 	// ServiceEndpoint        string
 	// Method                 string
@@ -512,4 +563,76 @@ func TestTOMLConfiguration(t *testing.T) {
 	assert.Equal(t, 204, conf.HTTPTransport.ExpectedResponseStatus, "ExpectedResponseStatus")
 	assert.Equal(t, "timestamp", conf.HTTPTransport.TimestampProperty, "TimestampProperty")
 	assert.Equal(t, "value", conf.HTTPTransport.ValueProperty, "ValueProperty")
+	assert.Equal(t, true, conf.HTTPTransport.PrintStackOnError, "PrintStackOnError")
+	assert.Equal(t, "main", conf.OpenTSDBTransport.Name, "Name")
+
+	var host1Found, host2Found, host3Found bool
+
+	for _, backend := range conf.Backends {
+
+		var expected timelinemanager.BackendItem
+
+		if backend.Host == "host1" {
+
+			host1Found = true
+			expected.Host = backend.Host
+			expected.AddHostTag = true
+			expected.CycleDuration = funks.Duration{Duration: gotest.MustParseDuration("15s")}
+			expected.Port = 8123
+			expected.Storage = timelinemanager.Normal
+			expected.Type = timelinemanager.OpenTSDB
+			expected.CommonTags = map[string]string{
+				"tag1": "val1",
+				"tag2": "val2",
+				"tag3": "val3",
+			}
+
+		} else if backend.Host == "host2" {
+
+			host2Found = true
+			expected.Host = backend.Host
+			expected.AddHostTag = true
+			expected.CycleDuration = funks.Duration{Duration: gotest.MustParseDuration("25s")}
+			expected.Port = 8124
+			expected.Storage = timelinemanager.Archive
+			expected.Type = timelinemanager.OpenTSDB
+			expected.CommonTags = map[string]string{
+				"tag4": "val4",
+				"tag5": "val5",
+				"tag6": "val6",
+			}
+
+		} else if backend.Host == "host3" {
+
+			host3Found = true
+			expected.Host = backend.Host
+			expected.AddHostTag = false
+			expected.CycleDuration = funks.Duration{Duration: gotest.MustParseDuration("35s")}
+			expected.Port = 8125
+			expected.Storage = customStorage
+			expected.Type = timelinemanager.HTTP
+			expected.CommonTags = map[string]string{
+				"tag7": "val7",
+				"tag8": "val8",
+				"tag9": "val9",
+			}
+
+		} else {
+
+			assert.Fail(t, "unexpected host", "unexpected host found: %s", backend.Host)
+			continue
+		}
+
+		assert.Equal(t, expected.AddHostTag, backend.AddHostTag, expected.Host+"->AddHostTag")
+		assert.Equal(t, expected.CycleDuration, backend.CycleDuration, expected.Host+"->CycleDuration")
+		assert.Equal(t, expected.Port, backend.Port, expected.Host+"->Port")
+		assert.Equal(t, expected.Storage, backend.Storage, expected.Host+"->Storage")
+		assert.Equal(t, expected.Type, backend.Type, expected.Host+"->Type")
+		assert.Len(t, backend.CommonTags, 3, expected.Host+"->CommonTags(len)")
+		assert.True(t, reflect.DeepEqual(expected.CommonTags, backend.CommonTags), expected.Host+"->CommonTags(content)")
+	}
+
+	assert.True(t, host1Found, "expected host1 backend configuration")
+	assert.True(t, host2Found, "expected host2 backend configuration")
+	assert.True(t, host3Found, "expected host3 backend configuration")
 }

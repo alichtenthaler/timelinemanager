@@ -1,5 +1,5 @@
-hash: 50d11373285e122ab7ea6800da3151da496e56cbc5913f95006b19638ff3fad2
-updated: 2020-06-01T23:46:42.463474945-03:00
+hash: b8f5bdef1f14796e09e0b175d52a88eb04542c6232fb08c7a663157d6e05b120
+updated: 2020-06-02T23:32:43.425110297-03:00
 imports:
 - name: github.com/rs/zerolog
   version: f1dd50b8c64d79be1392edf1d8fda5cedea4916d
@@ -9,7 +9,7 @@ imports:
 - name: github.com/uol/funks
   version: f269ed14e2d4a926c50b15abc1b8280691a72142
 - name: github.com/uol/hashing
-  version: 520f9fe195e130976599e3a495044b6b9aabfcd4
+  version: bae62b4944ba36da28087e8b0b54e6d5bddcf18e
 - name: github.com/uol/logh
   version: 04611a676395e92babe6a4e3f5d0aa517ec0b0d5
 - name: github.com/uol/scheduler
@@ -21,7 +21,7 @@ imports:
   - opentsdb
   - serializer
 - name: github.com/uol/timeline
-  version: 219d47be65174087a4df14205aac473e71d2e007
+  version: a3b25a56e9e0ebbbc4fa9085cd38ec49815ec1c3
   subpackages:
   - buffer
 - name: golang.org/x/crypto
@@ -48,7 +48,7 @@ testImports:
   subpackages:
   - assert
 - name: github.com/uol/gotest
-  version: cc7800087ac3ab0c2ceb38fc975a9a3de51b2631
+  version: b94df555148ad97bc7b864b127454cb49630b79e
   subpackages:
   - http
   - telnet

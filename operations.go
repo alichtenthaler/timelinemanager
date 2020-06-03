@@ -39,15 +39,27 @@ func (tm *Instance) Send(caller string, stype StorageType, op timeline.FlatOpera
 	var err error
 	if backend.ttype == OpenTSDB {
 
-		if op != RawOpenTSDB {
+		if op == RawOpenTSDB {
+			err = backend.manager.SendOpenTSDB(value, time.Now().Unix(), metric, tags...)
+		} else if op >= timeline.Avg && op <= timeline.Min {
 			err = backend.manager.FlattenOpenTSDB(op, value, time.Now().Unix(), metric, tags...)
 		} else {
-			err = backend.manager.SendOpenTSDB(value, time.Now().Unix(), metric, tags...)
+			err = ErrTransportNotSupported
 		}
 
 	} else if backend.ttype == HTTP {
 
-		if op != RawHTTP {
+		if op == RawHTTP {
+			err = backend.manager.SendHTTP(
+				cHTTPNumberFormat,
+				[]interface{}{
+					cMetric, metric,
+					cValue, value,
+					cTimestamp, time.Now().Unix(),
+					cTags, tm.toTagMap(tags),
+				}...,
+			)
+		} else if op >= timeline.Avg && op <= timeline.Min {
 			err = backend.manager.FlattenHTTP(
 				op,
 				cHTTPNumberFormat,
@@ -59,15 +71,7 @@ func (tm *Instance) Send(caller string, stype StorageType, op timeline.FlatOpera
 				}...,
 			)
 		} else {
-			err = backend.manager.SendHTTP(
-				cHTTPNumberFormat,
-				[]interface{}{
-					cMetric, metric,
-					cValue, value,
-					cTimestamp, time.Now().Unix(),
-					cTags, tm.toTagMap(tags),
-				}...,
-			)
+			err = ErrTransportNotSupported
 		}
 
 	} else {
@@ -182,7 +186,7 @@ func (tm *Instance) StoreHashedData(stype StorageType, hash string, ttl time.Dur
 			cHTTPNumberFormat,
 			[]interface{}{
 				cMetric, metric,
-				cValue, 1,
+				cValue, (float64)(1),
 				cTimestamp, time.Now().Unix(),
 				cTags, tm.toTagMap(tags),
 			}...,
