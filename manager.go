@@ -175,8 +175,6 @@ func (tm *Instance) Start() error {
 			b.Port,
 		)
 
-		tm.configuration.DefaultTransportConfiguration.Name = name
-
 		dtc := timeline.DataTransformerConf{
 			CycleDuration:    tm.configuration.Backends[i].CycleDuration,
 			HashSize:         tm.configuration.HashSize,
@@ -192,7 +190,10 @@ func (tm *Instance) Start() error {
 
 		if tm.configuration.Backends[i].Type == OpenTSDB {
 
-			opentsdbTransport, err := timeline.NewOpenTSDBTransport(tm.configuration.OpenTSDBTransport)
+			conf := *tm.configuration.OpenTSDBTransport
+			conf.Name = name
+
+			opentsdbTransport, err := timeline.NewOpenTSDBTransport(&conf)
 			if err != nil {
 				return err
 			}
@@ -201,7 +202,10 @@ func (tm *Instance) Start() error {
 
 		} else if tm.configuration.Backends[i].Type == HTTP {
 
-			httpTransport, err := timeline.NewHTTPTransport(tm.configuration.HTTPTransport)
+			conf := *tm.configuration.HTTPTransport
+			conf.Name = name
+
+			httpTransport, err := timeline.NewHTTPTransport(&conf)
 			if err != nil {
 				return err
 			}
