@@ -43,6 +43,8 @@ const (
 
 	cHTTPNumberFormat string = "httpNumberFormat"
 	cHTTPTextFormat   string = "httpTextFormat"
+
+	cLoggerStorage string = "storage"
 )
 
 // ErrStorageNotFound - raised when a storage type was not found
@@ -74,7 +76,7 @@ type Configuration struct {
 	HashingAlgorithm hashing.Algorithm
 	HashSize         int
 	DataTTL          funks.Duration
-	timeline.DefaultTransportConfiguration
+	timeline.DefaultTransportConfig
 	OpenTSDBTransport *timeline.OpenTSDBTransportConfig
 	HTTPTransport     *timeline.HTTPTransportConfig
 }
@@ -89,11 +91,11 @@ func (c *Configuration) Validate() error {
 	var hasOpenTSDB, hasHTTP bool
 
 	if hasOpenTSDB = c.OpenTSDBTransport != nil; hasOpenTSDB {
-		c.OpenTSDBTransport.DefaultTransportConfiguration = c.DefaultTransportConfiguration
+		c.OpenTSDBTransport.DefaultTransportConfig = c.DefaultTransportConfig
 	}
 
 	if hasHTTP = c.HTTPTransport != nil; hasHTTP {
-		c.HTTPTransport.DefaultTransportConfiguration = c.DefaultTransportConfiguration
+		c.HTTPTransport.DefaultTransportConfig = c.DefaultTransportConfig
 	}
 
 	if !hasOpenTSDB && !hasHTTP {
@@ -163,23 +165,12 @@ func (tm *Instance) Start() error {
 
 	for i := 0; i < len(tm.configuration.Backends); i++ {
 
-		b := timeline.Backend{
-			Host: tm.configuration.Backends[i].Host,
-			Port: tm.configuration.Backends[i].Port,
-		}
+		b := &tm.configuration.Backends[i].Backend
 
-		name := fmt.Sprintf(
-			"%s-%s:%d",
-			tm.configuration.Backends[i].Storage,
-			b.Host,
-			b.Port,
-		)
-
-		dtc := timeline.DataTransformerConf{
+		dtc := timeline.DataTransformerConfig{
 			CycleDuration:    tm.configuration.Backends[i].CycleDuration,
 			HashSize:         tm.configuration.HashSize,
 			HashingAlgorithm: tm.configuration.HashingAlgorithm,
-			Name:             name,
 		}
 
 		f := timeline.NewFlattener(&dtc)
@@ -191,21 +182,17 @@ func (tm *Instance) Start() error {
 		if tm.configuration.Backends[i].Type == OpenTSDB {
 
 			conf := *tm.configuration.OpenTSDBTransport
-			conf.Name = name
 
 			opentsdbTransport, err := timeline.NewOpenTSDBTransport(&conf)
 			if err != nil {
 				return err
 			}
 
-			manager, err = timeline.NewManager(opentsdbTransport, f, a, &b)
+			manager, err = timeline.NewManager(opentsdbTransport, f, a, b)
 
 		} else if tm.configuration.Backends[i].Type == HTTP {
 
-			conf := *tm.configuration.HTTPTransport
-			conf.Name = name
-
-			httpTransport, err := timeline.NewHTTPTransport(&conf)
+			httpTransport, err := timeline.NewHTTPTransport(tm.configuration.HTTPTransport)
 			if err != nil {
 				return err
 			}
@@ -228,7 +215,7 @@ func (tm *Instance) Start() error {
 				cTags,
 			)
 
-			manager, err = timeline.NewManager(httpTransport, f, a, &b)
+			manager, err = timeline.NewManager(httpTransport, f, a, b, cLoggerStorage, string(tm.configuration.Backends[i].Storage))
 
 		} else {
 

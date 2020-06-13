@@ -1,12 +1,15 @@
 package timelinemanager_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
 	"regexp"
 	"testing"
 	"time"
+
+	"github.com/uol/gofiles"
 
 	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/assert"
@@ -105,7 +108,7 @@ func createTestConf(configs ...*storageConfig) *timelinemanager.Configuration {
 		HashingAlgorithm: hashing.SHAKE128,
 		HashSize:         12,
 		DataTTL:          funks.Duration{Duration: time.Minute},
-		DefaultTransportConfiguration: timeline.DefaultTransportConfiguration{
+		DefaultTransportConfig: timeline.DefaultTransportConfig{
 			SerializerBufferSize: bufferSize,
 			BatchSendInterval:    funks.Duration{Duration: cycleDurationMS * time.Millisecond},
 			RequestTimeout:       funks.Duration{Duration: requestTimeoutS * time.Second},
@@ -497,6 +500,91 @@ func TestSameBackendConfiguration(t *testing.T) {
 
 const customStorage timelinemanager.StorageType = "custom"
 
+var expectedConf = timelinemanager.Configuration{
+
+	HashingAlgorithm: hashing.SHAKE128,
+	HashSize:         6,
+	DataTTL:          *funks.ForceNewStringDuration("2m"),
+
+	DefaultTransportConfig: timeline.DefaultTransportConfig{
+		TransportBufferSize:  1024,
+		BatchSendInterval:    *funks.ForceNewStringDuration("30s"),
+		RequestTimeout:       *funks.ForceNewStringDuration("5s"),
+		SerializerBufferSize: 2048,
+		DebugInput:           false,
+		DebugOutput:          true,
+		TimeBetweenBatches:   *funks.ForceNewStringDuration("10ms"),
+		PrintStackOnError:    true,
+	},
+
+	OpenTSDBTransport: &timeline.OpenTSDBTransportConfig{
+		ReadBufferSize:         64,
+		MaxReadTimeout:         *funks.ForceNewStringDuration("100ms"),
+		ReconnectionTimeout:    *funks.ForceNewStringDuration("3s"),
+		MaxReconnectionRetries: 5,
+		DisconnectAfterWrites:  true,
+	},
+
+	HTTPTransport: &timeline.HTTPTransportConfig{
+		ServiceEndpoint:        "/api/put",
+		Method:                 "POST",
+		ExpectedResponseStatus: 204,
+		TimestampProperty:      "timestamp",
+		ValueProperty:          "value",
+	},
+
+	Backends: []timelinemanager.BackendItem{
+
+		{
+			AddHostTag:    true,
+			CycleDuration: *funks.ForceNewStringDuration("15s"),
+			Backend: timeline.Backend{
+				Host: "host1",
+				Port: 8123,
+			},
+			Storage: timelinemanager.Normal,
+			Type:    timelinemanager.OpenTSDB,
+			CommonTags: map[string]string{
+				"tag1": "val1",
+				"tag2": "val2",
+				"tag3": "val3",
+			},
+		},
+
+		{
+			AddHostTag:    true,
+			CycleDuration: *funks.ForceNewStringDuration("25s"),
+			Backend: timeline.Backend{
+				Host: "host2",
+				Port: 8124,
+			},
+			Storage: timelinemanager.Archive,
+			Type:    timelinemanager.OpenTSDB,
+			CommonTags: map[string]string{
+				"tag4": "val4",
+				"tag5": "val5",
+				"tag6": "val6",
+			},
+		},
+
+		{
+			AddHostTag:    false,
+			CycleDuration: *funks.ForceNewStringDuration("35s"),
+			Backend: timeline.Backend{
+				Host: "host3",
+				Port: 8125,
+			},
+			Storage: customStorage,
+			Type:    timelinemanager.HTTP,
+			CommonTags: map[string]string{
+				"tag7": "val7",
+				"tag8": "val8",
+				"tag9": "val9",
+			},
+		},
+	},
+}
+
 // TestTOMLConfiguration - tests loading the configuration as TOML
 func TestTOMLConfiguration(t *testing.T) {
 
@@ -507,130 +595,28 @@ func TestTOMLConfiguration(t *testing.T) {
 		return
 	}
 
-	err = conf.Validate()
-	if !assert.NoError(t, err, "no error expected validating the configuration") {
+	jsonStr, err := json.Marshal(&conf)
+	if err != nil {
+		panic(err)
+	}
+
+	assert.True(t, reflect.DeepEqual(expectedConf, conf), "expected same configuration: %s", jsonStr)
+}
+
+// TestJSONConfiguration - tests loading the configuration as JSON
+func TestJSONConfiguration(t *testing.T) {
+
+	jsonBytes, err := gofiles.ReadFileBytes("./config.json")
+	if !assert.NoError(t, err, "expected no error loading json file") {
 		return
 	}
 
-	// HashingAlgorithm hashing.Algorithm
-	// HashSize         int
-	// DataTTL          funks.Duration
+	tmc := timelinemanager.Configuration{}
 
-	assert.Equal(t, gotest.MustParseDuration("2m"), conf.DataTTL.Duration, "DataTTL")
-	assert.Equal(t, 6, conf.HashSize, "HashSize")
-	assert.Equal(t, hashing.SHAKE128, conf.HashingAlgorithm, "HashingAlgorithm")
-
-	// TransportBufferSize  int
-	// BatchSendInterval    funks.Duration
-	// RequestTimeout       funks.Duration
-	// SerializerBufferSize int
-	// DebugInput           bool
-	// DebugOutput          bool
-	// TimeBetweenBatches   funks.Duration
-
-	assert.Equal(t, 1024, conf.TransportBufferSize, "TransportBufferSize")
-	assert.Equal(t, gotest.MustParseDuration("30s"), conf.BatchSendInterval.Duration, "BatchSendInterval")
-	assert.Equal(t, gotest.MustParseDuration("5s"), conf.RequestTimeout.Duration, "RequestTimeout")
-	assert.Equal(t, 2048, conf.SerializerBufferSize, "SerializerBufferSize")
-	assert.Equal(t, false, conf.DebugInput, "DebugInput")
-	assert.Equal(t, true, conf.DebugOutput, "DebugOutput")
-	assert.Equal(t, gotest.MustParseDuration("10ms"), conf.TimeBetweenBatches.Duration, "TimeBetweenBatches")
-
-	// ReadBufferSize         int
-	// MaxReadTimeout         funks.Duration
-	// ReconnectionTimeout    funks.Duration
-	// MaxReconnectionRetries int
-	// DisconnectAfterWrites  bool
-
-	assert.True(t, reflect.DeepEqual(conf.DefaultTransportConfiguration, conf.OpenTSDBTransport.DefaultTransportConfiguration), "expected same object")
-	assert.Equal(t, gotest.MustParseDuration("100ms"), conf.OpenTSDBTransport.MaxReadTimeout.Duration, "MaxReadTimeout")
-	assert.Equal(t, 5, conf.OpenTSDBTransport.MaxReconnectionRetries, "MaxReconnectionRetries")
-	assert.Equal(t, 64, conf.OpenTSDBTransport.ReadBufferSize, "ReadBufferSize")
-	assert.Equal(t, gotest.MustParseDuration("3s"), conf.OpenTSDBTransport.ReconnectionTimeout.Duration, "ReconnectionTimeout")
-	assert.Equal(t, true, conf.OpenTSDBTransport.DisconnectAfterWrites, "DisconnectAfterWrites")
-	assert.Equal(t, true, conf.OpenTSDBTransport.PrintStackOnError, "PrintStackOnError")
-
-	// ServiceEndpoint        string
-	// Method                 string
-	// ExpectedResponseStatus int
-	// TimestampProperty      string
-	// ValueProperty          string
-
-	assert.True(t, reflect.DeepEqual(conf.DefaultTransportConfiguration, conf.HTTPTransport.DefaultTransportConfiguration), "expected same object")
-	assert.Equal(t, "/api/put", conf.HTTPTransport.ServiceEndpoint, "ServiceEndpoint")
-	assert.Equal(t, "POST", conf.HTTPTransport.Method, "Method")
-	assert.Equal(t, 204, conf.HTTPTransport.ExpectedResponseStatus, "ExpectedResponseStatus")
-	assert.Equal(t, "timestamp", conf.HTTPTransport.TimestampProperty, "TimestampProperty")
-	assert.Equal(t, "value", conf.HTTPTransport.ValueProperty, "ValueProperty")
-	assert.Equal(t, true, conf.HTTPTransport.PrintStackOnError, "PrintStackOnError")
-
-	var host1Found, host2Found, host3Found bool
-
-	for _, backend := range conf.Backends {
-
-		var expected timelinemanager.BackendItem
-
-		if backend.Host == "host1" {
-
-			host1Found = true
-			expected.Host = backend.Host
-			expected.AddHostTag = true
-			expected.CycleDuration = funks.Duration{Duration: gotest.MustParseDuration("15s")}
-			expected.Port = 8123
-			expected.Storage = timelinemanager.Normal
-			expected.Type = timelinemanager.OpenTSDB
-			expected.CommonTags = map[string]string{
-				"tag1": "val1",
-				"tag2": "val2",
-				"tag3": "val3",
-			}
-
-		} else if backend.Host == "host2" {
-
-			host2Found = true
-			expected.Host = backend.Host
-			expected.AddHostTag = true
-			expected.CycleDuration = funks.Duration{Duration: gotest.MustParseDuration("25s")}
-			expected.Port = 8124
-			expected.Storage = timelinemanager.Archive
-			expected.Type = timelinemanager.OpenTSDB
-			expected.CommonTags = map[string]string{
-				"tag4": "val4",
-				"tag5": "val5",
-				"tag6": "val6",
-			}
-
-		} else if backend.Host == "host3" {
-
-			host3Found = true
-			expected.Host = backend.Host
-			expected.AddHostTag = false
-			expected.CycleDuration = funks.Duration{Duration: gotest.MustParseDuration("35s")}
-			expected.Port = 8125
-			expected.Storage = customStorage
-			expected.Type = timelinemanager.HTTP
-			expected.CommonTags = map[string]string{
-				"tag7": "val7",
-				"tag8": "val8",
-				"tag9": "val9",
-			}
-
-		} else {
-
-			assert.Fail(t, "unexpected host", "unexpected host found: %s", backend.Host)
-			continue
-		}
-
-		assert.Equal(t, expected.AddHostTag, backend.AddHostTag, expected.Host+"->AddHostTag")
-		assert.Equal(t, expected.CycleDuration, backend.CycleDuration, expected.Host+"->CycleDuration")
-		assert.Equal(t, expected.Port, backend.Port, expected.Host+"->Port")
-		assert.Equal(t, expected.Storage, backend.Storage, expected.Host+"->Storage")
-		assert.Equal(t, expected.Type, backend.Type, expected.Host+"->Type")
-		assert.Len(t, backend.CommonTags, 3, expected.Host+"->CommonTags(len)")
-		assert.True(t, reflect.DeepEqual(expected.CommonTags, backend.CommonTags), expected.Host+"->CommonTags(content)")
+	err = json.Unmarshal(jsonBytes, &tmc)
+	if !assert.NoError(t, err, "expected no error unmarshalling json") {
+		return
 	}
 
-	assert.True(t, host1Found, "expected host1 backend configuration")
-	assert.True(t, host2Found, "expected host2 backend configuration")
-	assert.True(t, host3Found, "expected host3 backend configuration")
+	assert.True(t, reflect.DeepEqual(expectedConf, tmc), "expected same configuration: %s", string(jsonBytes))
 }
