@@ -49,7 +49,7 @@ func (sc *storageConfig) Close() {
 	}
 }
 
-func createTestConf(configs ...*storageConfig) *timelinemanager.Configuration {
+func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, configs ...*storageConfig) *timelinemanager.Configuration {
 
 	backends := []timelinemanager.BackendItem{}
 
@@ -115,12 +115,15 @@ func createTestConf(configs ...*storageConfig) *timelinemanager.Configuration {
 			TransportBufferSize:  bufferSize,
 			TimeBetweenBatches:   funks.Duration{Duration: 10 * time.Millisecond},
 		},
-		HTTPTransport: &timeline.HTTPTransportConfig{
-			ExpectedResponseStatus: 200,
-			Method:                 "POST",
-			ServiceEndpoint:        "/post",
-			TimestampProperty:      "timestamp",
-			ValueProperty:          "value",
+		HTTPTransport: &timelinemanager.HTTPTransportConfigExt{
+			HTTPTransportConfig: timeline.HTTPTransportConfig{
+				ExpectedResponseStatus: 200,
+				Method:                 "POST",
+				ServiceEndpoint:        "/post",
+				TimestampProperty:      "timestamp",
+				ValueProperty:          "value",
+			},
+			JSONMappings: customJSONMapings,
 		},
 		OpenTSDBTransport: &timeline.OpenTSDBTransportConfig{
 			MaxReadTimeout:         funks.Duration{Duration: requestTimeoutS * time.Second},
@@ -133,9 +136,9 @@ func createTestConf(configs ...*storageConfig) *timelinemanager.Configuration {
 	return c
 }
 
-func createTimelineManager(t *testing.T, configs ...*storageConfig) (*timelinemanager.Instance, bool) {
+func createTimelineManager(t *testing.T, customJSONMapings []timelinemanager.CustomJSONMapping, configs ...*storageConfig) (*timelinemanager.Instance, bool) {
 
-	tm, err := timelinemanager.New(createTestConf(configs...))
+	tm, err := timelinemanager.New(createTestConf(customJSONMapings, configs...))
 	if !assert.NoError(t, err, "expected no error creating the timeline manager") {
 		return nil, false
 	}
@@ -225,7 +228,7 @@ func TestOpenTSDB(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
+	tm, ok := createTimelineManager(t, nil, configs...)
 	if !ok {
 		return
 	}
@@ -333,7 +336,7 @@ func TestHTTP(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
+	tm, ok := createTimelineManager(t, nil, configs...)
 	if !ok {
 		return
 	}
@@ -376,7 +379,7 @@ func TestStorageNotFound(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
+	tm, ok := createTimelineManager(t, nil, configs...)
 	if !ok {
 		return
 	}
@@ -396,7 +399,7 @@ func TestTransportNotSupported(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
+	tm, ok := createTimelineManager(t, nil, configs...)
 	if !ok {
 		return
 	}
@@ -420,7 +423,7 @@ func TestBothTransports(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
+	tm, ok := createTimelineManager(t, nil, configs...)
 	if !ok {
 		return
 	}
@@ -446,7 +449,7 @@ func TestBothTransportsWithErrors(t *testing.T) {
 		},
 	}
 
-	tm, ok := createTimelineManager(t, configs...)
+	tm, ok := createTimelineManager(t, nil, configs...)
 	if !ok {
 		return
 	}
@@ -481,7 +484,7 @@ func TestSameBackendConfiguration(t *testing.T) {
 		},
 	}
 
-	tm, err := timelinemanager.New(createTestConf(configs...))
+	tm, err := timelinemanager.New(createTestConf(nil, configs...))
 	if !assert.NoError(t, err, "expected no error creating the timeline manager") {
 		return
 	}
@@ -525,12 +528,14 @@ var expectedConf = timelinemanager.Configuration{
 		DisconnectAfterWrites:  true,
 	},
 
-	HTTPTransport: &timeline.HTTPTransportConfig{
-		ServiceEndpoint:        "/api/put",
-		Method:                 "POST",
-		ExpectedResponseStatus: 204,
-		TimestampProperty:      "timestamp",
-		ValueProperty:          "value",
+	HTTPTransport: &timelinemanager.HTTPTransportConfigExt{
+		HTTPTransportConfig: timeline.HTTPTransportConfig{
+			ServiceEndpoint:        "/api/put",
+			Method:                 "POST",
+			ExpectedResponseStatus: 204,
+			TimestampProperty:      "timestamp",
+			ValueProperty:          "value",
+		},
 	},
 
 	Backends: []timelinemanager.BackendItem{
@@ -619,4 +624,86 @@ func TestJSONConfiguration(t *testing.T) {
 	}
 
 	assert.True(t, reflect.DeepEqual(expectedConf, tmc), "expected same configuration: %s", string(jsonBytes))
+}
+
+// TestCustomJSONMapping - creates a new manager with custom json mapping
+func TestCustomJSONMapping(t *testing.T) {
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.Normal,
+			ttype: timelinemanager.HTTP,
+		},
+	}
+
+	type CustomJSON struct {
+		Metric string            `json:"metric"`
+		Value  float64           `json:"value"`
+		Tags   map[string]string `json:"tags"`
+	}
+
+	cjson := CustomJSON{
+		Metric: "custom.metric",
+		Value:  10,
+		Tags: map[string]string{
+			"tag1": "$",
+			"tag2": "val2",
+			"tag3": "$",
+		},
+	}
+
+	instance := cjson
+
+	customMappings := []timelinemanager.CustomJSONMapping{
+		{
+			MappingName: "custom",
+			Instance:    instance,
+			Variables: []string{
+				"tags.tag1",
+				"tags.tag3",
+			},
+		},
+	}
+
+	tm, ok := createTimelineManager(t, customMappings, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	err := tm.SendCustomJSON(
+		"TestCustomJSONMapping",
+		timelinemanager.Normal,
+		"custom",
+		"tags.tag1", "customVal1",
+		"tags.tag3", "3",
+	)
+
+	if !assert.NoError(t, err, "expected no error sending custom json") {
+		return
+	}
+
+	message := <-configs[0].httpServer.RequestChannel()
+	if !assert.NotNil(t, message, "expected a valid request message") {
+		return
+	}
+
+	expected := []CustomJSON{}
+	err = json.Unmarshal([]byte(`[{"metric":"custom.metric","value":10,"tags":{"tag3":"3","tag1":"customVal1","tag2":"val2"}}]`), &expected)
+	if !assert.NoError(t, err, "expected no error unmarshalling expected json") {
+		return
+	}
+
+	actual := []CustomJSON{}
+	err = json.Unmarshal([]byte(message.Body), &actual)
+	if !assert.NoError(t, err, "expected no error unmarshalling actual json") {
+		return
+	}
+
+	assert.Equal(t,
+		expected,
+		actual,
+		"expected same message",
+	)
 }

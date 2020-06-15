@@ -5,8 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/uol/funks"
-	"github.com/uol/hashing"
 	"github.com/uol/logh"
 	jsonSerializer "github.com/uol/serializer/json"
 	"github.com/uol/timeline"
@@ -17,92 +15,11 @@ import (
 // @author: rnojiri
 //
 
-// StorageType - the storage type constant
-type StorageType string
-
-// TransportType - the transport type constant
-type TransportType string
-
-const (
-	// Normal - normal storage backend
-	Normal StorageType = "normal"
-
-	// Archive - archive storage backend
-	Archive StorageType = "archive"
-
-	// HTTP - http transport type
-	HTTP TransportType = "http"
-
-	// OpenTSDB - opentsdb transport type
-	OpenTSDB TransportType = "opentsdb"
-
-	cFunction  string = "func"
-	cType      string = "type"
-	cOperation string = "operation"
-	cHost      string = "host"
-
-	cHTTPNumberFormat string = "httpNumberFormat"
-	cHTTPTextFormat   string = "httpTextFormat"
-
-	cLoggerStorage string = "storage"
-)
-
-// ErrStorageNotFound - raised when a storage type was not found
-var ErrStorageNotFound error = fmt.Errorf("storage type not found")
-
-// ErrTransportNotSupported - raised when a transport is not supported for the specified storage
-var ErrTransportNotSupported error = fmt.Errorf("transport not supported")
-
-// BackendItem - one backend configuration
-type BackendItem struct {
-	timeline.Backend
-	Storage       StorageType
-	Type          TransportType
-	CycleDuration funks.Duration
-	AddHostTag    bool
-	CommonTags    map[string]string
-}
-
 // backendManager - internal type
 type backendManager struct {
 	manager    *timeline.Manager
 	commonTags []interface{}
 	ttype      TransportType
-}
-
-// Configuration - configuration
-type Configuration struct {
-	Backends         []BackendItem
-	HashingAlgorithm hashing.Algorithm
-	HashSize         int
-	DataTTL          funks.Duration
-	timeline.DefaultTransportConfig
-	OpenTSDBTransport *timeline.OpenTSDBTransportConfig
-	HTTPTransport     *timeline.HTTPTransportConfig
-}
-
-// Validate - validates the configuration
-func (c *Configuration) Validate() error {
-
-	if len(c.Backends) == 0 {
-		return fmt.Errorf("no backends configured")
-	}
-
-	var hasOpenTSDB, hasHTTP bool
-
-	if hasOpenTSDB = c.OpenTSDBTransport != nil; hasOpenTSDB {
-		c.OpenTSDBTransport.DefaultTransportConfig = c.DefaultTransportConfig
-	}
-
-	if hasHTTP = c.HTTPTransport != nil; hasHTTP {
-		c.HTTPTransport.DefaultTransportConfig = c.DefaultTransportConfig
-	}
-
-	if !hasOpenTSDB && !hasHTTP {
-		return fmt.Errorf("no transports configured")
-	}
-
-	return nil
 }
 
 // Instance - manages the configured number of timeline manager instances
@@ -192,7 +109,7 @@ func (tm *Instance) Start() error {
 
 		} else if tm.configuration.Backends[i].Type == HTTP {
 
-			httpTransport, err := timeline.NewHTTPTransport(tm.configuration.HTTPTransport)
+			httpTransport, err := timeline.NewHTTPTransport(&tm.configuration.HTTPTransport.HTTPTransportConfig)
 			if err != nil {
 				return err
 			}
@@ -214,6 +131,16 @@ func (tm *Instance) Start() error {
 				cTimestamp,
 				cTags,
 			)
+
+			if len(tm.configuration.HTTPTransport.JSONMappings) > 0 {
+				for _, mapping := range tm.configuration.HTTPTransport.JSONMappings {
+					httpTransport.AddJSONMapping(
+						mapping.MappingName,
+						mapping.Instance,
+						mapping.Variables...,
+					)
+				}
+			}
 
 			manager, err = timeline.NewManager(httpTransport, f, a, b, cLoggerStorage, string(tm.configuration.Backends[i].Storage))
 
@@ -290,5 +217,6 @@ func (tm *Instance) Shutdown() {
 
 // GetConfiguredDataTTL - returns the configured data ttl
 func (tm *Instance) GetConfiguredDataTTL() time.Duration {
+
 	return tm.configuration.DataTTL.Duration
 }

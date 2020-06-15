@@ -22,6 +22,20 @@ const (
 	cEmpty     string = ""
 )
 
+func (tm *Instance) logSendOperationError(caller string, err error) {
+
+	if err != nil {
+		if logh.ErrorEnabled {
+			ev := tm.logger.Error().Err(err)
+			if len(caller) > 0 {
+				ev = ev.Str(cFunction, caller)
+			}
+			ev = ev.Str(cFunction, caller)
+			ev.Msg("operation error")
+		}
+	}
+}
+
 // Send - send a point or do a flatten operation
 func (tm *Instance) Send(caller string, stype StorageType, op timeline.FlatOperation, value float64, metric string, tags ...interface{}) error {
 
@@ -78,16 +92,7 @@ func (tm *Instance) Send(caller string, stype StorageType, op timeline.FlatOpera
 		err = ErrTransportNotSupported
 	}
 
-	if err != nil {
-		if logh.ErrorEnabled {
-			ev := tm.logger.Error().Err(err)
-			if len(caller) > 0 {
-				ev = ev.Str(cFunction, caller)
-			}
-			ev = ev.Str(cFunction, caller)
-			ev.Msg("operation error")
-		}
-	}
+	tm.logSendOperationError(caller, err)
 
 	return err
 }
@@ -123,16 +128,7 @@ func (tm *Instance) SendText(caller string, stype StorageType, value, metric str
 		err = ErrTransportNotSupported
 	}
 
-	if err != nil {
-		if logh.ErrorEnabled {
-			ev := tm.logger.Error().Err(err)
-			if len(caller) > 0 {
-				ev = ev.Str(cFunction, caller)
-			}
-			ev = ev.Str(cFunction, caller)
-			ev.Msg("operation error")
-		}
-	}
+	tm.logSendOperationError(caller, err)
 
 	return err
 }
@@ -205,4 +201,28 @@ func (tm *Instance) toTagMap(tags []interface{}) map[string]interface{} {
 	}
 
 	return tagMap
+}
+
+// SendCustomJSON - send a custom json point
+func (tm *Instance) SendCustomJSON(caller string, stype StorageType, mappingName string, variables ...interface{}) error {
+
+	if !tm.ready {
+		return nil
+	}
+
+	backend, ok := tm.backendMap[stype]
+	if !ok {
+		return tm.storageTypeNotFound(caller, stype)
+	}
+
+	var err error
+	if backend.ttype == HTTP {
+		err = backend.manager.SendHTTP(mappingName, variables...)
+	} else {
+		err = ErrTransportNotSupported
+	}
+
+	tm.logSendOperationError(caller, err)
+
+	return err
 }
