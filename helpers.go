@@ -21,7 +21,8 @@ func (tm *Instance) FlattenCountN(caller string, value float64, metric string, t
 	if value == 0 {
 		return
 	}
-	tm.Send(caller, Normal, timeline.Count, value, metric, tags...)
+	// WARNING!!! this operation must be sum because count only sums the number of occurrences and not their values
+	tm.Send(caller, Normal, timeline.Sum, value, metric, tags...)
 }
 
 // FlattenCountIncN - calls the Flatten function using normal storage and count operation (adds 1 to the value)
