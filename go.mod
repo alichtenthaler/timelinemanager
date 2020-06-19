@@ -12,4 +12,5 @@ require (
 	github.com/uol/logh v1.0.1
 	github.com/uol/serializer v1.3.1
 	github.com/uol/timeline v1.7.2
+	golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1 // indirect
 )
