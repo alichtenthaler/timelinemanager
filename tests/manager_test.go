@@ -1,17 +1,13 @@
-package timelinemanager_test
+package tests
 
 import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/uol/gofiles"
-
-	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/assert"
 	"github.com/uol/funks"
 	gotesthttp "github.com/uol/gotest/http"
@@ -23,11 +19,11 @@ import (
 )
 
 const (
-	testHost        string        = "localhost"
-	channelSize     int           = 5
-	bufferSize      int           = 256
-	cycleDurationMS time.Duration = 200
-	requestTimeoutS time.Duration = 5
+	testHost       string        = "localhost"
+	channelSize    int           = 5
+	bufferSize     int           = 256
+	cycleDuration  time.Duration = 200
+	requestTimeout time.Duration = 5
 )
 
 type storageConfig struct {
@@ -83,7 +79,7 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 					Host:               testHost,
 					MessageChannelSize: channelSize,
 					ReadBufferSize:     bufferSize,
-					ReadTimeout:        requestTimeoutS * time.Second,
+					ReadTimeout:        requestTimeout * time.Second,
 				},
 				true,
 			)
@@ -97,9 +93,9 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 				Host: testHost,
 				Port: conf.port,
 			},
-			CycleDuration: funks.Duration{Duration: cycleDurationMS * time.Millisecond},
+			CycleDuration: funks.Duration{Duration: cycleDuration * time.Millisecond},
 			Storage:       conf.stype,
-			Type:          conf.ttype,
+			Transport:     string(conf.ttype),
 		})
 	}
 
@@ -110,26 +106,32 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 		DataTTL:          funks.Duration{Duration: time.Minute},
 		DefaultTransportConfig: timeline.DefaultTransportConfig{
 			SerializerBufferSize: bufferSize,
-			BatchSendInterval:    funks.Duration{Duration: cycleDurationMS * time.Millisecond},
-			RequestTimeout:       funks.Duration{Duration: requestTimeoutS * time.Second},
+			BatchSendInterval:    funks.Duration{Duration: cycleDuration * time.Millisecond},
+			RequestTimeout:       funks.Duration{Duration: requestTimeout * time.Second},
 			TransportBufferSize:  bufferSize,
 			TimeBetweenBatches:   funks.Duration{Duration: 10 * time.Millisecond},
 		},
-		HTTPTransport: &timelinemanager.HTTPTransportConfigExt{
-			HTTPTransportConfig: timeline.HTTPTransportConfig{
-				ExpectedResponseStatus: 200,
-				Method:                 "POST",
-				ServiceEndpoint:        "/post",
-				TimestampProperty:      "timestamp",
-				ValueProperty:          "value",
+		HTTPTransports: map[string]timelinemanager.HTTPTransportConfigExt{
+			"http": {
+				HTTPTransportConfig: timeline.HTTPTransportConfig{
+					ExpectedResponseStatus: 200,
+					Method:                 "POST",
+					ServiceEndpoint:        "/post",
+					TimestampProperty:      "timestamp",
+					ValueProperty:          "value",
+				},
+				JSONMappings: customJSONMapings,
 			},
-			JSONMappings: customJSONMapings,
 		},
-		OpenTSDBTransport: &timeline.OpenTSDBTransportConfig{
-			MaxReadTimeout:         funks.Duration{Duration: requestTimeoutS * time.Second},
-			MaxReconnectionRetries: 3,
-			ReadBufferSize:         bufferSize,
-			ReconnectionTimeout:    funks.Duration{Duration: 100 * time.Millisecond},
+		OpenTSDBTransports: map[string]timelinemanager.OpenTSDBTransportConfigExt{
+			"opentsdb": {
+				OpenTSDBTransportConfig: timeline.OpenTSDBTransportConfig{
+					MaxReadTimeout:         funks.Duration{Duration: requestTimeout * time.Second},
+					MaxReconnectionRetries: 3,
+					ReadBufferSize:         bufferSize,
+					ReconnectionTimeout:    funks.Duration{Duration: 100 * time.Millisecond},
+				},
+			},
 		},
 	}
 
@@ -157,7 +159,7 @@ func createTimelineManager(t *testing.T, customJSONMapings []timelinemanager.Cus
 
 func closeAll(tm *timelinemanager.Instance, confs []*storageConfig) {
 
-	<-time.After(requestTimeoutS * time.Second)
+	<-time.After(requestTimeout * time.Second)
 
 	if tm != nil {
 		tm.Shutdown()
@@ -305,7 +307,6 @@ func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance
 	}
 
 	if number {
-
 		return assert.True(t,
 			regexp.MustCompile(
 				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"value":%d?(\.[0]+)\}\]`,
@@ -313,17 +314,15 @@ func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance
 				MatchString(message.Body),
 			"expected same message",
 		)
-
-	} else {
-
-		return assert.True(t,
-			regexp.MustCompile(
-				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"text":"%s"\}\]`,
-					metric, value.(string))).
-				MatchString(message.Body),
-			"expected same message",
-		)
 	}
+
+	return assert.True(t,
+		regexp.MustCompile(
+			fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"text":"%s"\}\]`,
+				metric, value.(string))).
+			MatchString(message.Body),
+		"expected same message",
+	)
 }
 
 // TestHTTP - creates a new manager http only
@@ -499,131 +498,6 @@ func TestSameBackendConfiguration(t *testing.T) {
 	}
 
 	assert.Equal(t, `backend named "archive" is registered more than one time`, err.Error(), "expected a specific error")
-}
-
-const customStorage timelinemanager.StorageType = "custom"
-
-var expectedConf = timelinemanager.Configuration{
-
-	HashingAlgorithm: hashing.SHAKE128,
-	HashSize:         6,
-	DataTTL:          *funks.ForceNewStringDuration("2m"),
-
-	DefaultTransportConfig: timeline.DefaultTransportConfig{
-		TransportBufferSize:  1024,
-		BatchSendInterval:    *funks.ForceNewStringDuration("30s"),
-		RequestTimeout:       *funks.ForceNewStringDuration("5s"),
-		SerializerBufferSize: 2048,
-		DebugInput:           false,
-		DebugOutput:          true,
-		TimeBetweenBatches:   *funks.ForceNewStringDuration("10ms"),
-		PrintStackOnError:    true,
-	},
-
-	OpenTSDBTransport: &timeline.OpenTSDBTransportConfig{
-		ReadBufferSize:         64,
-		MaxReadTimeout:         *funks.ForceNewStringDuration("100ms"),
-		ReconnectionTimeout:    *funks.ForceNewStringDuration("3s"),
-		MaxReconnectionRetries: 5,
-		DisconnectAfterWrites:  true,
-	},
-
-	HTTPTransport: &timelinemanager.HTTPTransportConfigExt{
-		HTTPTransportConfig: timeline.HTTPTransportConfig{
-			ServiceEndpoint:        "/api/put",
-			Method:                 "POST",
-			ExpectedResponseStatus: 204,
-			TimestampProperty:      "timestamp",
-			ValueProperty:          "value",
-		},
-	},
-
-	Backends: []timelinemanager.BackendItem{
-
-		{
-			AddHostTag:    true,
-			CycleDuration: *funks.ForceNewStringDuration("15s"),
-			Backend: timeline.Backend{
-				Host: "host1",
-				Port: 8123,
-			},
-			Storage: timelinemanager.Normal,
-			Type:    timelinemanager.OpenTSDB,
-			CommonTags: map[string]string{
-				"tag1": "val1",
-				"tag2": "val2",
-				"tag3": "val3",
-			},
-		},
-
-		{
-			AddHostTag:    true,
-			CycleDuration: *funks.ForceNewStringDuration("25s"),
-			Backend: timeline.Backend{
-				Host: "host2",
-				Port: 8124,
-			},
-			Storage: timelinemanager.Archive,
-			Type:    timelinemanager.OpenTSDB,
-			CommonTags: map[string]string{
-				"tag4": "val4",
-				"tag5": "val5",
-				"tag6": "val6",
-			},
-		},
-
-		{
-			AddHostTag:    false,
-			CycleDuration: *funks.ForceNewStringDuration("35s"),
-			Backend: timeline.Backend{
-				Host: "host3",
-				Port: 8125,
-			},
-			Storage: customStorage,
-			Type:    timelinemanager.HTTP,
-			CommonTags: map[string]string{
-				"tag7": "val7",
-				"tag8": "val8",
-				"tag9": "val9",
-			},
-		},
-	},
-}
-
-// TestTOMLConfiguration - tests loading the configuration as TOML
-func TestTOMLConfiguration(t *testing.T) {
-
-	conf := timelinemanager.Configuration{}
-
-	_, err := toml.DecodeFile("./config.toml", &conf)
-	if !assert.NoError(t, err, "no error expected reading the toml") {
-		return
-	}
-
-	jsonStr, err := json.Marshal(&conf)
-	if err != nil {
-		panic(err)
-	}
-
-	assert.True(t, reflect.DeepEqual(expectedConf, conf), "expected same configuration: %s", jsonStr)
-}
-
-// TestJSONConfiguration - tests loading the configuration as JSON
-func TestJSONConfiguration(t *testing.T) {
-
-	jsonBytes, err := gofiles.ReadFileBytes("./config.json")
-	if !assert.NoError(t, err, "expected no error loading json file") {
-		return
-	}
-
-	tmc := timelinemanager.Configuration{}
-
-	err = json.Unmarshal(jsonBytes, &tmc)
-	if !assert.NoError(t, err, "expected no error unmarshalling json") {
-		return
-	}
-
-	assert.True(t, reflect.DeepEqual(expectedConf, tmc), "expected same configuration: %s", string(jsonBytes))
 }
 
 // TestCustomJSONMapping - creates a new manager with custom json mapping

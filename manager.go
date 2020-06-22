@@ -75,8 +75,101 @@ func (tm *Instance) storageTypeNotFound(function string, stype StorageType) erro
 	return ErrStorageNotFound
 }
 
+func (tm *Instance) createHTTPTransport(conf *HTTPTransportConfigExt) (*timeline.HTTPTransport, error) {
+
+	httpTransport, err := timeline.NewHTTPTransport(&conf.HTTPTransportConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if !conf.Text {
+		err = httpTransport.AddJSONMapping(
+			cHTTPNumberFormat,
+			jsonSerializer.NumberPoint{},
+			cMetric,
+			cValue,
+			cTimestamp,
+			cTags,
+		)
+	} else {
+		err = httpTransport.AddJSONMapping(
+			cHTTPTextFormat,
+			jsonSerializer.TextPoint{},
+			cMetric,
+			cText,
+			cTimestamp,
+			cTags,
+		)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(conf.JSONMappings) > 0 {
+		for _, mapping := range conf.JSONMappings {
+			err = httpTransport.AddJSONMapping(
+				mapping.MappingName,
+				mapping.Instance,
+				mapping.Variables...,
+			)
+
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return httpTransport, nil
+}
+
+func (tm *Instance) createOpenTSDBTransport(conf *OpenTSDBTransportConfigExt) {
+
+}
+
 // Start - starts the timeline manager
 func (tm *Instance) Start() error {
+
+	type transportRef struct {
+		transport timeline.Transport
+		ttype     TransportType
+	}
+
+	transportMap := map[string]transportRef{}
+
+	for k, v := range tm.configuration.HTTPTransports {
+
+		if _, exists := transportMap[k]; exists {
+			return fmt.Errorf(`error creating http transport, name is duplicated: %s`, k)
+		}
+
+		t, err := tm.createHTTPTransport(&v)
+		if err != nil {
+			return err
+		}
+
+		transportMap[k] = transportRef{
+			transport: t,
+			ttype:     HTTP,
+		}
+	}
+
+	for k, v := range tm.configuration.OpenTSDBTransports {
+
+		if _, exists := transportMap[k]; exists {
+			return fmt.Errorf(`error creating opentsdb transport, name is duplicated: %s`, k)
+		}
+
+		t, err := timeline.NewOpenTSDBTransport(&v.OpenTSDBTransportConfig)
+		if err != nil {
+			return err
+		}
+
+		transportMap[k] = transportRef{
+			transport: t,
+			ttype:     OpenTSDB,
+		}
+	}
 
 	tm.backendMap = map[StorageType]backendManager{}
 
@@ -94,59 +187,17 @@ func (tm *Instance) Start() error {
 		a := timeline.NewAccumulator(&dtc)
 
 		var manager *timeline.Manager
+		var reference transportRef
 		var err error
+		var ok bool
 
-		if tm.configuration.Backends[i].Type == OpenTSDB {
+		if reference, ok = transportMap[tm.configuration.Backends[i].Transport]; ok {
 
-			conf := *tm.configuration.OpenTSDBTransport
-
-			opentsdbTransport, err := timeline.NewOpenTSDBTransport(&conf)
-			if err != nil {
-				return err
-			}
-
-			manager, err = timeline.NewManager(opentsdbTransport, f, a, b)
-
-		} else if tm.configuration.Backends[i].Type == HTTP {
-
-			httpTransport, err := timeline.NewHTTPTransport(&tm.configuration.HTTPTransport.HTTPTransportConfig)
-			if err != nil {
-				return err
-			}
-
-			httpTransport.AddJSONMapping(
-				cHTTPNumberFormat,
-				jsonSerializer.NumberPoint{},
-				cMetric,
-				cValue,
-				cTimestamp,
-				cTags,
-			)
-
-			httpTransport.AddJSONMapping(
-				cHTTPTextFormat,
-				jsonSerializer.TextPoint{},
-				cMetric,
-				cText,
-				cTimestamp,
-				cTags,
-			)
-
-			if len(tm.configuration.HTTPTransport.JSONMappings) > 0 {
-				for _, mapping := range tm.configuration.HTTPTransport.JSONMappings {
-					httpTransport.AddJSONMapping(
-						mapping.MappingName,
-						mapping.Instance,
-						mapping.Variables...,
-					)
-				}
-			}
-
-			manager, err = timeline.NewManager(httpTransport, f, a, b, cLoggerStorage, string(tm.configuration.Backends[i].Storage))
+			manager, err = timeline.NewManager(reference.transport, f, a, b, cLoggerStorage, string(tm.configuration.Backends[i].Storage))
 
 		} else {
 
-			err = fmt.Errorf("transport type %s is undefined", tm.configuration.Backends[i].Type)
+			err = fmt.Errorf("transport name is undefined: %s", tm.configuration.Backends[i].Transport)
 		}
 
 		if err != nil {
@@ -181,7 +232,7 @@ func (tm *Instance) Start() error {
 		tm.backendMap[tm.configuration.Backends[i].Storage] = backendManager{
 			manager:    manager,
 			commonTags: tags,
-			ttype:      tm.configuration.Backends[i].Type,
+			ttype:      reference.ttype,
 		}
 
 		err = manager.Start()
@@ -190,7 +241,7 @@ func (tm *Instance) Start() error {
 		}
 
 		if logh.InfoEnabled {
-			tm.logger.Info().Str(cType, string(tm.configuration.Backends[i].Type)).Msgf("timeline manager created: %s:%d (%+v)", b.Host, b.Port, tags)
+			tm.logger.Info().Str(cType, string(reference.ttype)).Msgf("timeline manager created: %s:%d (%+v)", b.Host, b.Port, tags)
 		}
 	}
 

@@ -1,12 +1,12 @@
 {
-	"Backends": [{
+	"backends": [{
 		"host": "host1",
 		"port": 8123,
-		"Storage": "normal",
-		"Type": "opentsdb",
-		"CycleDuration": "15s",
-		"AddHostTag": true,
-		"CommonTags": {
+		"storage": "normal",
+		"cycleDuration": "15s",
+		"addHostTag": true,
+		"transport": "opentsdb",
+		"commonTags": {
 			"tag1": "val1",
 			"tag2": "val2",
 			"tag3": "val3"
@@ -15,10 +15,10 @@
 		"host": "host2",
 		"port": 8124,
 		"Storage": "archive",
-		"Type": "opentsdb",
-		"CycleDuration": "25s",
-		"AddHostTag": true,
-		"CommonTags": {
+		"cycleDuration": "25s",
+		"addHostTag": true,
+		"transport": "number",
+		"commonTags": {
 			"tag4": "val4",
 			"tag5": "val5",
 			"tag6": "val6"
@@ -26,19 +26,19 @@
 	}, {
 		"host": "host3",
 		"port": 8125,
-		"Storage": "custom",
-		"Type": "http",
-		"CycleDuration": "35s",
-		"AddHostTag": false,
-		"CommonTags": {
+		"storage": "custom",
+		"cycleDuration": "35s",
+		"addHostTag": false,
+		"transport": "text",
+		"commonTags": {
 			"tag7": "val7",
 			"tag8": "val8",
 			"tag9": "val9"
 		}
 	}],
-	"HashingAlgorithm": "shake128",
-	"HashSize": 6,
-	"DataTTL": "2m0s",
+	"hashingAlgorithm": "shake128",
+	"hashSize": 6,
+	"dataTTL": "2m0s",
 	"transportBufferSize": 1024,
 	"batchSendInterval": "30s",
 	"requestTimeout": "5s",
@@ -46,18 +46,30 @@
 	"debugOutput": true,
 	"timeBetweenBatches": "10ms",
 	"printStackOnError": true,
-	"OpenTSDBTransport": {
-		"readBufferSize": 64,
-		"maxReadTimeout": "100ms",
-		"reconnectionTimeout": "3s",
-		"maxReconnectionRetries": 5,
-		"disconnectAfterWrites": true
+	"openTSDBTransports": {
+		"opentsdb": {
+			"readBufferSize": 64,
+			"maxReadTimeout": "100ms",
+			"reconnectionTimeout": "3s",
+			"maxReconnectionRetries": 5,
+			"disconnectAfterWrites": true
+		}
 	},
-	"HTTPTransport": {
-		"serviceEndpoint": "/api/put",
-		"method": "POST",
-		"expectedResponseStatus": 204,
-		"timestampProperty": "timestamp",
-		"valueProperty": "value"
+	"httpTransports": {
+		"number": {
+			"serviceEndpoint": "/api/put",
+			"method": "PUT",
+			"expectedResponseStatus": 204,
+			"timestampProperty": "timestamp",
+			"valueProperty": "value"
+		}, 
+		"text": {
+			"serviceEndpoint": "/api/text/put",
+			"method": "POST",
+			"expectedResponseStatus": 204,
+			"timestampProperty": "timestamp",
+			"valueProperty": "text",
+			"text": true
+		}
 	}
 }

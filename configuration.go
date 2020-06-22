@@ -48,10 +48,11 @@ var ErrTransportNotSupported error = fmt.Errorf("transport not supported")
 type BackendItem struct {
 	timeline.Backend
 	Storage       StorageType       `json:"storage,omitempty"`
-	Type          TransportType     `json:"type,omitempty"`
 	CycleDuration funks.Duration    `json:"cycleDuration,omitempty"`
 	AddHostTag    bool              `json:"addHostTag,omitempty"`
 	CommonTags    map[string]string `json:"commonTags,omitempty"`
+	Transport     string            `json:"transport,omitempty"`
+	transportType TransportType
 }
 
 // CustomJSONMapping - a custom json mapping to be added
@@ -61,10 +62,22 @@ type CustomJSONMapping struct {
 	Variables   []string    `json:"variables,omitempty"`
 }
 
+// TransportExt - an transport extension
+type TransportExt struct {
+	Text bool `json:"text,omitempty"`
+}
+
 // HTTPTransportConfigExt - an extension to the timeline.HTTPTransportConfig
 type HTTPTransportConfigExt struct {
+	TransportExt
 	timeline.HTTPTransportConfig
 	JSONMappings []CustomJSONMapping `json:"jsonMappings,omitempty"`
+}
+
+// OpenTSDBTransportConfigExt - an extension to the timeline.OpenTSDBTransportConfig
+type OpenTSDBTransportConfigExt struct {
+	TransportExt
+	timeline.OpenTSDBTransportConfig
 }
 
 // Configuration - configuration
@@ -74,8 +87,8 @@ type Configuration struct {
 	HashSize         int               `json:"hashSize,omitempty"`
 	DataTTL          funks.Duration    `json:"dataTTL,omitempty"`
 	timeline.DefaultTransportConfig
-	OpenTSDBTransport *timeline.OpenTSDBTransportConfig `json:"openTSDBTransport,omitempty"`
-	HTTPTransport     *HTTPTransportConfigExt           `json:"httpTransport,omitempty"`
+	OpenTSDBTransports map[string]OpenTSDBTransportConfigExt `json:"openTSDBTransports,omitempty"`
+	HTTPTransports     map[string]HTTPTransportConfigExt     `json:"httpTransports,omitempty"`
 }
 
 // Validate - validates the configuration
@@ -87,12 +100,20 @@ func (c *Configuration) Validate() error {
 
 	var hasOpenTSDB, hasHTTP bool
 
-	if hasOpenTSDB = c.OpenTSDBTransport != nil; hasOpenTSDB {
-		c.OpenTSDBTransport.DefaultTransportConfig = c.DefaultTransportConfig
+	if hasOpenTSDB = len(c.OpenTSDBTransports) > 0; hasOpenTSDB {
+		for k := range c.OpenTSDBTransports {
+			v := c.OpenTSDBTransports[k]
+			v.OpenTSDBTransportConfig.DefaultTransportConfig = c.DefaultTransportConfig
+			c.OpenTSDBTransports[k] = v
+		}
 	}
 
-	if hasHTTP = c.HTTPTransport != nil; hasHTTP {
-		c.HTTPTransport.DefaultTransportConfig = c.DefaultTransportConfig
+	if hasHTTP = len(c.HTTPTransports) > 0; hasHTTP {
+		for k := range c.HTTPTransports {
+			v := c.HTTPTransports[k]
+			v.HTTPTransportConfig.DefaultTransportConfig = c.DefaultTransportConfig
+			c.HTTPTransports[k] = v
+		}
 	}
 
 	if !hasOpenTSDB && !hasHTTP {
