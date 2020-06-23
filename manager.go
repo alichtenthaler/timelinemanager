@@ -123,10 +123,6 @@ func (tm *Instance) createHTTPTransport(conf *HTTPTransportConfigExt) (*timeline
 	return httpTransport, nil
 }
 
-func (tm *Instance) createOpenTSDBTransport(conf *OpenTSDBTransportConfigExt) {
-
-}
-
 // Start - starts the timeline manager
 func (tm *Instance) Start() error {
 
