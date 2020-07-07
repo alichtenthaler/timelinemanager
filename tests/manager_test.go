@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,7 +96,7 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 
 			responses := []gotesthttp.ResponseData{}
 
-			if conf.tname == tnNumber {
+			if conf.tname == tnNumber || conf.tname == tnOpenTSDB {
 
 				responses = append(responses, gotesthttp.ResponseData{
 					RequestData: gotesthttp.RequestData{
@@ -153,7 +154,12 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 
 			conf.port = gotest.GeneratePort()
 
-			conf.backendMap[conf.tname] = gotesthttp.NewServer(testHost, conf.port, channelSize, responses)
+			conf.backendMap[conf.tname] = gotesthttp.NewServer(&gotesthttp.Configuration{
+				Host:        testHost,
+				Port:        conf.port,
+				ChannelSize: channelSize,
+				Responses:   responses,
+			})
 
 		} else if conf.ttype == timelinemanager.OpenTSDBTransport {
 
@@ -265,54 +271,94 @@ func closeAll(tm *timelinemanager.Instance, confs []*storageConfig) {
 	}
 }
 
+type pointValues struct {
+	metric string
+	tag1K  string
+	tag1V  string
+	tag2K  string
+	tag2V  string
+	value  int
+}
+
 func testSendOpenTSDBMessage(
 	t *testing.T,
 	function string,
 	tm *timelinemanager.Instance,
 	stype timelinemanager.StorageType,
 	op timeline.FlatOperation,
+) (point pointValues, testOk bool) {
 
-) (metric, tag1K, tag1V, tag2K, tag2V string, value int, testOk bool) {
+	point.value = gotest.RandomInt(1, 100)
+	point.metric = fmt.Sprintf("metric_%d", gotest.RandomInt(1, 100))
 
-	value = gotest.RandomInt(1, 100)
-	metric = fmt.Sprintf("metric_%d", gotest.RandomInt(1, 100))
+	point.tag1K = fmt.Sprintf("tag1_%d", gotest.RandomInt(1, 100))
+	point.tag2K = fmt.Sprintf("tag2_%d", gotest.RandomInt(1, 100))
 
-	tag1K = fmt.Sprintf("tag1_%d", gotest.RandomInt(1, 100))
-	tag2K = fmt.Sprintf("tag2_%d", gotest.RandomInt(1, 100))
-
-	tag1V = fmt.Sprintf("val1_%d", gotest.RandomInt(1, 100))
-	tag2V = fmt.Sprintf("val2_%d", gotest.RandomInt(1, 100))
+	point.tag1V = fmt.Sprintf("val1_%d", gotest.RandomInt(1, 100))
+	point.tag2V = fmt.Sprintf("val2_%d", gotest.RandomInt(1, 100))
 
 	err := tm.Send(
 		function,
 		stype,
 		op,
-		float64(value),
-		metric,
-		tag1K, tag1V,
-		tag2K, tag2V,
+		float64(point.value),
+		point.metric,
+		point.tag1K, point.tag1V,
+		point.tag2K, point.tag2V,
 	)
 
 	testOk = assert.NoError(t, err, "expected no error")
 	return
 }
 
-func testOpenTSDBMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig) bool {
+func testOpenTSDBMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig, numMessages int, tName transportName) bool {
 
-	metric, tag1K, tag1V, tag2K, tag2V, value, ok := testSendOpenTSDBMessage(t, function, tm, stype, op)
-	if !ok {
+	points := make([]pointValues, numMessages)
+	expectedRegexes := make([]*regexp.Regexp, numMessages)
+	var ok bool
+
+	for i := 0; i < numMessages; i++ {
+
+		points[i], ok = testSendOpenTSDBMessage(t, function, tm, stype, op)
+		if !ok {
+			return false
+		}
+
+		expectedRegexes[i] = regexp.MustCompile(
+			fmt.Sprintf(
+				`put %s [0-9]{10} %d %s=%s %s=%s`,
+				points[i].metric, points[i].value, points[i].tag1K, points[i].tag1V, points[i].tag2K, points[i].tag2V,
+			),
+		)
+	}
+
+	message := <-conf.getTCPServer(tName).MessageChannel()
+	if !assert.NotNil(t, message, "expected a message") {
 		return false
 	}
 
-	message := <-conf.getTCPServer(tnOpenTSDB).MessageChannel()
+	if !assert.Equal(t, message.Host, testHost, "expected same host") {
+		return false
+	}
 
-	return assert.True(t,
-		regexp.MustCompile(
-			fmt.Sprintf(`put %s [0-9]{10} %d %s=%s %s=%s`,
-				metric, value, tag1K, tag1V, tag2K, tag2V)).
-			MatchString(message.Message),
-		"expected same message",
-	)
+	if !assert.Equal(t, message.Port, conf.port, "expected same host") {
+		return false
+	}
+
+	lines := strings.Split(message.Message, "\n")
+	lines = lines[:len(lines)-1] //remove the last line
+
+	if !assert.Len(t, lines, numMessages, "expected same number of lines") {
+		return false
+	}
+
+	for i, line := range lines {
+		if !assert.Regexp(t, expectedRegexes[i], line, "expected same payload") {
+			return false
+		}
+	}
+
+	return true
 }
 
 // TestOpenTSDB - creates a new manager telnet only
@@ -333,7 +379,7 @@ func TestOpenTSDB(t *testing.T) {
 
 	defer closeAll(tm, configs)
 
-	testOpenTSDBMessage(t, "TestOpenTSDB", tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[0])
+	testOpenTSDBMessage(t, "TestOpenTSDB", tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[0], gotest.RandomInt(5, 10), tnOpenTSDB)
 }
 
 func testSendJSONMessage(
@@ -390,7 +436,15 @@ func testSendJSONMessage(
 	return
 }
 
-func testRequest(t *testing.T, req *gotesthttp.RequestData, number bool) bool {
+func testRequest(t *testing.T, req *gotesthttp.RequestData, number bool, port int) bool {
+
+	if !assert.Equal(t, req.Host, testHost, "expected same host") {
+		return false
+	}
+
+	if !assert.Equal(t, req.Port, port, "expected same port") {
+		return false
+	}
 
 	if number {
 
@@ -408,26 +462,20 @@ func testRequest(t *testing.T, req *gotesthttp.RequestData, number bool) bool {
 	return assert.Equalf(t, "POST", req.Method, "expected same method: %s", req.Body)
 }
 
-func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig, number bool) bool {
+func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig, number bool, tName transportName) bool {
 
 	metric, value, ok := testSendJSONMessage(t, function, tm, stype, op, number)
 	if !ok {
 		return false
 	}
 
-	var httpServer *gotesthttp.Server
-	if number {
-		httpServer = conf.getHTTPServer(tnNumber)
-	} else {
-		httpServer = conf.getHTTPServer(tnText)
-	}
-
+	httpServer := conf.getHTTPServer(tName)
 	message := gotesthttp.WaitForServerRequest(httpServer, 100*time.Millisecond, 2*time.Second)
 	if !assert.NotNil(t, message, "expected a valid request message") {
 		return false
 	}
 
-	if !testRequest(t, message, number) {
+	if !testRequest(t, message, number, conf.port) {
 		return false
 	}
 
@@ -475,11 +523,12 @@ func TestHTTP(t *testing.T) {
 	defer closeAll(tm, configs)
 
 	for i := 0; i < gotest.RandomInt(2, 5); i++ {
-		if !testHTTPMessage(t, "TestHTTP", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true) {
+
+		if !testHTTPMessage(t, "TestHTTP", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true, tnNumber) {
 			return
 		}
 
-		if !testHTTPMessage(t, "TestHTTP", tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[1], false) {
+		if !testHTTPMessage(t, "TestHTTP", tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[1], false, tnText) {
 			return
 		}
 	}
@@ -575,10 +624,10 @@ func TestBothTransportsWithErrors(t *testing.T) {
 	funcName := "TestBothTransportsWithErrors"
 
 	testUnknownStorage(t, funcName, tm, customStorage, timelinemanager.RawJSON)
-	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true)
+	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true, tnNumber)
 	testUnknownTransport(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, true, true)
-	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true)
-	testOpenTSDBMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[1])
+	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true, tnText)
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[1], gotest.RandomInt(5, 10), tnOpenTSDB)
 	testUnknownTransport(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, true, true)
 }
 
@@ -703,14 +752,14 @@ func TestCustomJSONMapping(t *testing.T) {
 	)
 }
 
-func testUDPMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig) bool {
+func testUDPMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig, tName transportName) bool {
 
 	metric, value, ok := testSendJSONMessage(t, function, tm, stype, op, true)
 	if !ok {
 		return false
 	}
 
-	message := <-conf.getUDPServer(tnUDP).MessageChannel()
+	message := <-conf.getUDPServer(tName).MessageChannel()
 	if !assert.NotNil(t, message, "expected a valid request message") {
 		return false
 	}
@@ -743,12 +792,14 @@ func TestUDP(t *testing.T) {
 	defer closeAll(tm, configs)
 
 	for i := 0; i < gotest.RandomInt(5, 10); i++ {
-		testUDPMessage(t, "TestUDP", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0])
+		testUDPMessage(t, "TestUDP", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], tnUDP)
 	}
 }
 
 // TestAllTransports - creates a new manager and tests http, opentsdb and udp integrations (no errors)
 func TestAllTransports(t *testing.T) {
+
+	funcName := "TestAllTransports"
 
 	configs := []*storageConfig{
 		{
@@ -780,8 +831,117 @@ func TestAllTransports(t *testing.T) {
 
 	defer closeAll(tm, configs)
 
-	testHTTPMessage(t, "TestAllTransports", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true)
-	testOpenTSDBMessage(t, "TestAllTransports", tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, configs[2])
-	testHTTPMessage(t, "TestAllTransports", tm, customStorage, timelinemanager.RawJSON, configs[1], false)
-	testUDPMessage(t, "TestAllTransports", tm, customUDPStorage, timelinemanager.RawJSON, configs[3])
+	testHTTPMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true, tnNumber)
+	testHTTPMessage(t, funcName, tm, customStorage, timelinemanager.RawJSON, configs[1], false, tnText)
+	testUDPMessage(t, funcName, tm, customUDPStorage, timelinemanager.RawJSON, configs[3], tnUDP)
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, configs[2], gotest.RandomInt(5, 10), tnOpenTSDB)
+}
+
+// TestMultipleTCP - creates a new manager and tests multiple tcp transports
+func TestMultipleTCP(t *testing.T) {
+
+	funcName := "TestMultipleTCP"
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnNumber,
+		},
+		{
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
+		},
+		{
+			stype: customStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnText,
+		},
+	}
+
+	tm, ok := createTimelineManager(t, nil, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[0], gotest.RandomInt(5, 10), tnNumber)
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, configs[1], gotest.RandomInt(5, 10), tnOpenTSDB)
+	testOpenTSDBMessage(t, funcName, tm, customStorage, timelinemanager.RawOpenTSDB, configs[2], gotest.RandomInt(5, 10), tnText)
+}
+
+// TestMultipleHTTP - creates a new manager and tests multiple http transports
+func TestMultipleHTTP(t *testing.T) {
+
+	funcName := "TestMultipleHTTP"
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnNumber,
+		},
+		{
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnOpenTSDB,
+		},
+		{
+			stype: customStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnText,
+		},
+	}
+
+	tm, ok := createTimelineManager(t, nil, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	for i := 0; i < gotest.RandomInt(3, 6); i++ {
+		testHTTPMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true, tnNumber)
+		testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[1], true, tnOpenTSDB)
+		testHTTPMessage(t, funcName, tm, customStorage, timelinemanager.RawJSON, configs[2], false, tnText)
+	}
+}
+
+// TestMultipleUDP - creates a new manager and tests multiple udp transports
+func TestMultipleUDP(t *testing.T) {
+
+	funcName := "TestMultipleUDP"
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.UDPTransport,
+			tname: tnUDP,
+		},
+		{
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.UDPTransport,
+			tname: tnNumber,
+		},
+		{
+			stype: customStorage,
+			ttype: timelinemanager.UDPTransport,
+			tname: tnText,
+		},
+	}
+
+	tm, ok := createTimelineManager(t, nil, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	for i := 0; i < gotest.RandomInt(3, 6); i++ {
+		testUDPMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], tnUDP)
+		testUDPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[1], tnNumber)
+		testUDPMessage(t, funcName, tm, customStorage, timelinemanager.RawJSON, configs[2], tnText)
+	}
 }

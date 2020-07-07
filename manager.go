@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jinzhu/copier"
 	"github.com/uol/logh"
 	jsonSerializer "github.com/uol/serializer/json"
 	"github.com/uol/serializer/serializer"
@@ -137,7 +138,7 @@ func (tm *Instance) createSerializer(conf *TransportExt, bufferSize int) (serial
 	return nil, fmt.Errorf(`serializer named "%s" is not configured`, conf.Serializer)
 }
 
-func (tm *Instance) createHTTPTransport(conf HTTPTransportConfigExt) (*timeline.HTTPTransport, error) {
+func (tm *Instance) createHTTPTransport(conf *HTTPTransportConfigExt) (*timeline.HTTPTransport, error) {
 
 	s, err := tm.createSerializer(&conf.TransportExt, conf.SerializerBufferSize)
 	if err != nil {
@@ -152,7 +153,7 @@ func (tm *Instance) createHTTPTransport(conf HTTPTransportConfigExt) (*timeline.
 	return httpTransport, nil
 }
 
-func (tm *Instance) createUDPTransport(conf UDPTransportConfigExt) (*timeline.UDPTransport, error) {
+func (tm *Instance) createUDPTransport(conf *UDPTransportConfigExt) (*timeline.UDPTransport, error) {
 
 	s, err := tm.createSerializer(&conf.TransportExt, conf.SerializerBufferSize)
 	if err != nil {
@@ -183,7 +184,10 @@ func (tm *Instance) Start() error {
 			return fmt.Errorf(`error creating http transport, name is duplicated: %s`, k)
 		}
 
-		t, err := tm.createHTTPTransport(v)
+		confCopy := HTTPTransportConfigExt{}
+		copier.Copy(&confCopy, v)
+
+		t, err := tm.createHTTPTransport(&confCopy)
 		if err != nil {
 			return err
 		}
@@ -200,7 +204,10 @@ func (tm *Instance) Start() error {
 			return fmt.Errorf(`error creating opentsdb transport, name is duplicated: %s`, k)
 		}
 
-		t, err := timeline.NewOpenTSDBTransport(&v.OpenTSDBTransportConfig)
+		confCopy := timeline.OpenTSDBTransportConfig{}
+		copier.Copy(&confCopy, &v.OpenTSDBTransportConfig)
+
+		t, err := timeline.NewOpenTSDBTransport(&confCopy)
 		if err != nil {
 			return err
 		}
@@ -217,7 +224,10 @@ func (tm *Instance) Start() error {
 			return fmt.Errorf(`error creating udp transport, name is duplicated: %s`, k)
 		}
 
-		t, err := tm.createUDPTransport(v)
+		confCopy := UDPTransportConfigExt{}
+		copier.Copy(&confCopy, v)
+
+		t, err := tm.createUDPTransport(&confCopy)
 		if err != nil {
 			return err
 		}
