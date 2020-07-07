@@ -608,6 +608,11 @@ func TestBothTransportsWithErrors(t *testing.T) {
 			tname: tnNumber,
 		},
 		{
+			stype: customStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnText,
+		},
+		{
 			stype: timelinemanager.NormalStorage,
 			ttype: timelinemanager.OpenTSDBTransport,
 			tname: tnOpenTSDB,
@@ -623,11 +628,11 @@ func TestBothTransportsWithErrors(t *testing.T) {
 
 	funcName := "TestBothTransportsWithErrors"
 
-	testUnknownStorage(t, funcName, tm, customStorage, timelinemanager.RawJSON)
+	testUnknownStorage(t, funcName, tm, customUDPStorage, timelinemanager.RawJSON)
 	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true, tnNumber)
 	testUnknownTransport(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, true, true)
-	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true, tnText)
-	testOpenTSDBMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[1], gotest.RandomInt(5, 10), tnOpenTSDB)
+	testHTTPMessage(t, funcName, tm, customStorage, timelinemanager.RawJSON, configs[1], false, tnText)
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[2], gotest.RandomInt(5, 10), tnOpenTSDB)
 	testUnknownTransport(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, true, true)
 }
 
