@@ -10,6 +10,14 @@ debugOutput = true
 timeBetweenBatches = "10ms"
 printStackOnError = true
 
+[udpTransports.udp]
+    reconnectionTimeout = "6s"
+    maxReconnectionRetries = 8
+    disconnectAfterWrites = false
+    timestampProperty = "ts"
+    valueProperty = "v"
+    serializer = "json"
+
 [openTSDBTransports.opentsdb]
     readBufferSize = 64
     maxReadTimeout = "100ms"
@@ -23,6 +31,10 @@ printStackOnError = true
     expectedResponseStatus = 204
     timestampProperty = "timestamp"
     valueProperty = "value"
+    serializer = "json"
+    [httpTransports.number.headers]
+        "content-type" = "application/json"
+        "x-custom-header" = "test"
 
 [httpTransports.text]
     serviceEndpoint = "/api/text/put"
@@ -30,7 +42,15 @@ printStackOnError = true
     expectedResponseStatus = 204
     timestampProperty = "timestamp"
     valueProperty = "text"
-    text = true
+    serializer = "json"
+    [httpTransports.text.headers]
+        session = "xyz"
+
+[httpTransports.numberOpenTSDB]
+    serviceEndpoint = "/api/otsdb/put"
+    method = "POST"
+    expectedResponseStatus = 200
+    serializer = "opentsdb"
 
 [[backends]]
     addHostTag    = true
@@ -67,3 +87,15 @@ printStackOnError = true
         tag7 = "val7"
         tag8 = "val8"
         tag9 = "val9"
+
+[[backends]]
+    addHostTag    = true
+    cycleDuration = "45s"
+    host          = "host4"
+    port          = 4242
+    storage       = "customUDP"
+    transport     = "udp"
+        [backends.commonTags]
+        tag10 = "val10"
+        tag11 = "val11"
+        tag12 = "val12"

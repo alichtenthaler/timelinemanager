@@ -7,6 +7,7 @@ import (
 
 	"github.com/uol/logh"
 	jsonSerializer "github.com/uol/serializer/json"
+	"github.com/uol/serializer/serializer"
 	"github.com/uol/timeline"
 )
 
@@ -75,15 +76,17 @@ func (tm *Instance) storageTypeNotFound(function string, stype StorageType) erro
 	return ErrStorageNotFound
 }
 
-func (tm *Instance) createHTTPTransport(conf *HTTPTransportConfigExt) (*timeline.HTTPTransport, error) {
+func (tm *Instance) createSerializer(conf *TransportExt, bufferSize int) (serializer.Serializer, error) {
 
-	httpTransport, err := timeline.NewHTTPTransport(&conf.HTTPTransportConfig)
-	if err != nil {
-		return nil, err
+	if len(conf.Serializer) == 0 {
+		conf.Serializer = JSONSerializer
 	}
 
-	if !conf.Text {
-		err = httpTransport.AddJSONMapping(
+	if conf.Serializer == JSONSerializer {
+
+		js := jsonSerializer.New(bufferSize)
+
+		err := js.Add(
 			cHTTPNumberFormat,
 			jsonSerializer.NumberPoint{},
 			cMetric,
@@ -91,8 +94,12 @@ func (tm *Instance) createHTTPTransport(conf *HTTPTransportConfigExt) (*timeline
 			cTimestamp,
 			cTags,
 		)
-	} else {
-		err = httpTransport.AddJSONMapping(
+
+		if err != nil {
+			return nil, err
+		}
+
+		err = js.Add(
 			cHTTPTextFormat,
 			jsonSerializer.TextPoint{},
 			cMetric,
@@ -100,24 +107,61 @@ func (tm *Instance) createHTTPTransport(conf *HTTPTransportConfigExt) (*timeline
 			cTimestamp,
 			cTags,
 		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(conf.JSONMappings) > 0 {
+			for _, mapping := range conf.JSONMappings {
+				err = js.Add(
+					mapping.MappingName,
+					mapping.Instance,
+					mapping.Variables...,
+				)
+
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return js, nil
 	}
 
+	if conf.Serializer == OpenTSDBSerializer {
+
+		return jsonSerializer.New(bufferSize), nil
+	}
+
+	return nil, fmt.Errorf(`serializer named "%s" is not configured`, conf.Serializer)
+}
+
+func (tm *Instance) createHTTPTransport(conf HTTPTransportConfigExt) (*timeline.HTTPTransport, error) {
+
+	s, err := tm.createSerializer(&conf.TransportExt, conf.SerializerBufferSize)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(conf.JSONMappings) > 0 {
-		for _, mapping := range conf.JSONMappings {
-			err = httpTransport.AddJSONMapping(
-				mapping.MappingName,
-				mapping.Instance,
-				mapping.Variables...,
-			)
+	httpTransport, err := timeline.NewHTTPTransport(&conf.HTTPTransportConfig, s)
+	if err != nil {
+		return nil, err
+	}
 
-			if err != nil {
-				return nil, err
-			}
-		}
+	return httpTransport, nil
+}
+
+func (tm *Instance) createUDPTransport(conf UDPTransportConfigExt) (*timeline.UDPTransport, error) {
+
+	s, err := tm.createSerializer(&conf.TransportExt, conf.SerializerBufferSize)
+	if err != nil {
+		return nil, err
+	}
+
+	httpTransport, err := timeline.NewUDPTransport(&conf.UDPTransportConfig, s)
+	if err != nil {
+		return nil, err
 	}
 
 	return httpTransport, nil
@@ -139,14 +183,14 @@ func (tm *Instance) Start() error {
 			return fmt.Errorf(`error creating http transport, name is duplicated: %s`, k)
 		}
 
-		t, err := tm.createHTTPTransport(&v)
+		t, err := tm.createHTTPTransport(v)
 		if err != nil {
 			return err
 		}
 
 		transportMap[k] = transportRef{
 			transport: t,
-			ttype:     HTTP,
+			ttype:     HTTPTransport,
 		}
 	}
 
@@ -163,7 +207,24 @@ func (tm *Instance) Start() error {
 
 		transportMap[k] = transportRef{
 			transport: t,
-			ttype:     OpenTSDB,
+			ttype:     OpenTSDBTransport,
+		}
+	}
+
+	for k, v := range tm.configuration.UDPTransports {
+
+		if _, exists := transportMap[k]; exists {
+			return fmt.Errorf(`error creating udp transport, name is duplicated: %s`, k)
+		}
+
+		t, err := tm.createUDPTransport(v)
+		if err != nil {
+			return err
+		}
+
+		transportMap[k] = transportRef{
+			transport: t,
+			ttype:     UDPTransport,
 		}
 	}
 

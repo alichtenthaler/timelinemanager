@@ -15,6 +15,7 @@ import (
 )
 
 const customStorage timelinemanager.StorageType = "custom"
+const customUDPStorage timelinemanager.StorageType = "customUDP"
 
 var expectedConf = timelinemanager.Configuration{
 
@@ -36,11 +37,13 @@ var expectedConf = timelinemanager.Configuration{
 	OpenTSDBTransports: map[string]timelinemanager.OpenTSDBTransportConfigExt{
 		"opentsdb": {
 			OpenTSDBTransportConfig: timeline.OpenTSDBTransportConfig{
-				ReadBufferSize:         64,
-				MaxReadTimeout:         *funks.ForceNewStringDuration("100ms"),
-				ReconnectionTimeout:    *funks.ForceNewStringDuration("3s"),
-				MaxReconnectionRetries: 5,
-				DisconnectAfterWrites:  true,
+				ReadBufferSize: 64,
+				MaxReadTimeout: *funks.ForceNewStringDuration("100ms"),
+				TCPUDPTransportConfig: timeline.TCPUDPTransportConfig{
+					ReconnectionTimeout:    *funks.ForceNewStringDuration("3s"),
+					MaxReconnectionRetries: 5,
+					DisconnectAfterWrites:  true,
+				},
 			},
 		},
 	},
@@ -51,8 +54,17 @@ var expectedConf = timelinemanager.Configuration{
 				ServiceEndpoint:        "/api/put",
 				Method:                 "PUT",
 				ExpectedResponseStatus: 204,
-				TimestampProperty:      "timestamp",
-				ValueProperty:          "value",
+				CustomSerializerConfig: timeline.CustomSerializerConfig{
+					TimestampProperty: "timestamp",
+					ValueProperty:     "value",
+				},
+				Headers: map[string]string{
+					"content-type":    "application/json",
+					"x-custom-header": "test",
+				},
+			},
+			TransportExt: timelinemanager.TransportExt{
+				Serializer: timelinemanager.JSONSerializer,
 			},
 		},
 		"text": {
@@ -60,11 +72,45 @@ var expectedConf = timelinemanager.Configuration{
 				ServiceEndpoint:        "/api/text/put",
 				Method:                 "POST",
 				ExpectedResponseStatus: 204,
-				TimestampProperty:      "timestamp",
-				ValueProperty:          "text",
+				CustomSerializerConfig: timeline.CustomSerializerConfig{
+					TimestampProperty: "timestamp",
+					ValueProperty:     "text",
+				},
+				Headers: map[string]string{
+					"session": "xyz",
+				},
 			},
 			TransportExt: timelinemanager.TransportExt{
-				Text: true,
+				Serializer: timelinemanager.JSONSerializer,
+			},
+		},
+		"numberOpenTSDB": {
+			HTTPTransportConfig: timeline.HTTPTransportConfig{
+				ServiceEndpoint:        "/api/otsdb/put",
+				Method:                 "POST",
+				ExpectedResponseStatus: 200,
+			},
+			TransportExt: timelinemanager.TransportExt{
+				Serializer: timelinemanager.OpenTSDBSerializer,
+			},
+		},
+	},
+
+	UDPTransports: map[string]timelinemanager.UDPTransportConfigExt{
+		"udp": {
+			UDPTransportConfig: timeline.UDPTransportConfig{
+				TCPUDPTransportConfig: timeline.TCPUDPTransportConfig{
+					ReconnectionTimeout:    *funks.ForceNewStringDuration("6s"),
+					MaxReconnectionRetries: 8,
+					DisconnectAfterWrites:  false,
+				},
+				CustomSerializerConfig: timeline.CustomSerializerConfig{
+					TimestampProperty: "ts",
+					ValueProperty:     "v",
+				},
+			},
+			TransportExt: timelinemanager.TransportExt{
+				Serializer: timelinemanager.JSONSerializer,
 			},
 		},
 	},
@@ -78,7 +124,7 @@ var expectedConf = timelinemanager.Configuration{
 				Host: "host1",
 				Port: 8123,
 			},
-			Storage:   timelinemanager.Normal,
+			Storage:   timelinemanager.NormalStorage,
 			Transport: "opentsdb",
 			CommonTags: map[string]string{
 				"tag1": "val1",
@@ -94,7 +140,7 @@ var expectedConf = timelinemanager.Configuration{
 				Host: "host2",
 				Port: 8124,
 			},
-			Storage:   timelinemanager.Archive,
+			Storage:   timelinemanager.ArchiveStorage,
 			Transport: "number",
 			CommonTags: map[string]string{
 				"tag4": "val4",
@@ -116,6 +162,22 @@ var expectedConf = timelinemanager.Configuration{
 				"tag7": "val7",
 				"tag8": "val8",
 				"tag9": "val9",
+			},
+		},
+
+		{
+			AddHostTag:    true,
+			CycleDuration: *funks.ForceNewStringDuration("45s"),
+			Backend: timeline.Backend{
+				Host: "host4",
+				Port: 4242,
+			},
+			Storage:   customUDPStorage,
+			Transport: "udp",
+			CommonTags: map[string]string{
+				"tag10": "val10",
+				"tag11": "val11",
+				"tag12": "val12",
 			},
 		},
 	},

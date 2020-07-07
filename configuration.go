@@ -14,18 +14,30 @@ type StorageType string
 // TransportType - the transport type constant
 type TransportType string
 
+// SerializerType - the serializer type constant
+type SerializerType string
+
 const (
-	// Normal - normal storage backend
-	Normal StorageType = "normal"
+	// NormalStorage - normal storage backend
+	NormalStorage StorageType = "normal"
 
-	// Archive - archive storage backend
-	Archive StorageType = "archive"
+	// ArchiveStorage - archive storage backend
+	ArchiveStorage StorageType = "archive"
 
-	// HTTP - http transport type
-	HTTP TransportType = "http"
+	// HTTPTransport - http transport type
+	HTTPTransport TransportType = "http"
 
-	// OpenTSDB - opentsdb transport type
-	OpenTSDB TransportType = "opentsdb"
+	// OpenTSDBTransport - opentsdb transport type
+	OpenTSDBTransport TransportType = "opentsdb"
+
+	// UDPTransport - udp transport type
+	UDPTransport TransportType = "udp"
+
+	// JSONSerializer - json serializer type
+	JSONSerializer SerializerType = "json"
+
+	// OpenTSDBSerializer - opentsdb serializer type
+	OpenTSDBSerializer SerializerType = "opentsdb"
 
 	cFunction  string = "func"
 	cType      string = "type"
@@ -64,19 +76,24 @@ type CustomJSONMapping struct {
 
 // TransportExt - an transport extension
 type TransportExt struct {
-	Text bool `json:"text,omitempty"`
+	Serializer   SerializerType      `json:"serializer,omitempty"`
+	JSONMappings []CustomJSONMapping `json:"jsonMappings,omitempty"`
 }
 
 // HTTPTransportConfigExt - an extension to the timeline.HTTPTransportConfig
 type HTTPTransportConfigExt struct {
 	TransportExt
 	timeline.HTTPTransportConfig
-	JSONMappings []CustomJSONMapping `json:"jsonMappings,omitempty"`
+}
+
+// UDPTransportConfigExt - an extension to the timeline.UDPTransportConfig
+type UDPTransportConfigExt struct {
+	TransportExt
+	timeline.UDPTransportConfig
 }
 
 // OpenTSDBTransportConfigExt - an extension to the timeline.OpenTSDBTransportConfig
 type OpenTSDBTransportConfigExt struct {
-	TransportExt
 	timeline.OpenTSDBTransportConfig
 }
 
@@ -89,6 +106,7 @@ type Configuration struct {
 	timeline.DefaultTransportConfig
 	OpenTSDBTransports map[string]OpenTSDBTransportConfigExt `json:"openTSDBTransports,omitempty"`
 	HTTPTransports     map[string]HTTPTransportConfigExt     `json:"httpTransports,omitempty"`
+	UDPTransports      map[string]UDPTransportConfigExt      `json:"udpTransports,omitempty"`
 }
 
 // Validate - validates the configuration
@@ -98,7 +116,7 @@ func (c *Configuration) Validate() error {
 		return fmt.Errorf("no backends configured")
 	}
 
-	var hasOpenTSDB, hasHTTP bool
+	var hasOpenTSDB, hasHTTP, hasUDP bool
 
 	if hasOpenTSDB = len(c.OpenTSDBTransports) > 0; hasOpenTSDB {
 		for k := range c.OpenTSDBTransports {
@@ -116,7 +134,15 @@ func (c *Configuration) Validate() error {
 		}
 	}
 
-	if !hasOpenTSDB && !hasHTTP {
+	if hasUDP = len(c.UDPTransports) > 0; hasUDP {
+		for k := range c.UDPTransports {
+			v := c.UDPTransports[k]
+			v.UDPTransportConfig.DefaultTransportConfig = c.DefaultTransportConfig
+			c.UDPTransports[k] = v
+		}
+	}
+
+	if !hasOpenTSDB && !hasHTTP && !hasUDP {
 		return fmt.Errorf("no transports configured")
 	}
 

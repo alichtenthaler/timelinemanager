@@ -1,41 +1,58 @@
 {
-	"backends": [{
-		"host": "host1",
-		"port": 8123,
-		"storage": "normal",
-		"cycleDuration": "15s",
-		"addHostTag": true,
-		"transport": "opentsdb",
-		"commonTags": {
-			"tag1": "val1",
-			"tag2": "val2",
-			"tag3": "val3"
+	"backends": [
+		{
+			"host": "host1",
+			"port": 8123,
+			"storage": "normal",
+			"cycleDuration": "15s",
+			"addHostTag": true,
+			"transport": "opentsdb",
+			"commonTags": {
+				"tag1": "val1",
+				"tag2": "val2",
+				"tag3": "val3"
+			}
+		},
+		{
+			"host": "host2",
+			"port": 8124,
+			"Storage": "archive",
+			"cycleDuration": "25s",
+			"addHostTag": true,
+			"transport": "number",
+			"commonTags": {
+				"tag4": "val4",
+				"tag5": "val5",
+				"tag6": "val6"
+			}
+		},
+		{
+			"host": "host3",
+			"port": 8125,
+			"storage": "custom",
+			"cycleDuration": "35s",
+			"addHostTag": false,
+			"transport": "text",
+			"commonTags": {
+				"tag7": "val7",
+				"tag8": "val8",
+				"tag9": "val9"
+			}
+		},
+		{
+			"host": "host4",
+			"port": 4242,
+			"storage": "customUDP",
+			"cycleDuration": "45s",
+			"addHostTag": true,
+			"transport": "udp",
+			"commonTags": {
+				"tag10": "val10",
+				"tag11": "val11",
+				"tag12": "val12"
+			}
 		}
-	}, {
-		"host": "host2",
-		"port": 8124,
-		"Storage": "archive",
-		"cycleDuration": "25s",
-		"addHostTag": true,
-		"transport": "number",
-		"commonTags": {
-			"tag4": "val4",
-			"tag5": "val5",
-			"tag6": "val6"
-		}
-	}, {
-		"host": "host3",
-		"port": 8125,
-		"storage": "custom",
-		"cycleDuration": "35s",
-		"addHostTag": false,
-		"transport": "text",
-		"commonTags": {
-			"tag7": "val7",
-			"tag8": "val8",
-			"tag9": "val9"
-		}
-	}],
+	],
 	"hashingAlgorithm": "shake128",
 	"hashSize": 6,
 	"dataTTL": "2m0s",
@@ -61,15 +78,39 @@
 			"method": "PUT",
 			"expectedResponseStatus": 204,
 			"timestampProperty": "timestamp",
-			"valueProperty": "value"
-		}, 
+			"valueProperty": "value",
+			"serializer": "json",
+			"headers": {
+				"content-type": "application/json",
+				"x-custom-header": "test"
+			}
+		},
 		"text": {
 			"serviceEndpoint": "/api/text/put",
 			"method": "POST",
 			"expectedResponseStatus": 204,
 			"timestampProperty": "timestamp",
 			"valueProperty": "text",
-			"text": true
+			"serializer": "json",
+			"headers": {
+				"session": "xyz"
+			}
+		},
+		"numberOpenTSDB": {
+			"serviceEndpoint": "/api/otsdb/put",
+			"method": "POST",
+			"expectedResponseStatus": 200,
+			"serializer": "opentsdb"
+		}
+	},
+	"udpTransports": {
+		"udp": {
+			"reconnectionTimeout": "6s",
+			"maxReconnectionRetries": 8,
+			"disconnectAfterWrites": false,
+			"timestampProperty": "ts",
+			"valueProperty": "v",
+			"serializer": "json"
 		}
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/uol/funks"
 	gotesthttp "github.com/uol/gotest/http"
-	gotesttelnet "github.com/uol/gotest/telnet"
+	gotestcpudp "github.com/uol/gotest/tcpudp"
 	gotest "github.com/uol/gotest/utils"
 	"github.com/uol/hashing"
 	"github.com/uol/timeline"
@@ -20,70 +20,184 @@ import (
 
 const (
 	testHost       string        = "localhost"
-	channelSize    int           = 5
+	channelSize    int           = 10
 	bufferSize     int           = 256
 	cycleDuration  time.Duration = 200
 	requestTimeout time.Duration = 5
+
+	tnNumber   transportName = "number"
+	tnText     transportName = "text"
+	tnOpenTSDB transportName = "opentsdb"
+	tnUDP      transportName = "udp"
 )
 
+type transportName string
+
 type storageConfig struct {
-	stype        timelinemanager.StorageType
-	ttype        timelinemanager.TransportType
-	httpServer   *gotesthttp.Server
-	telnetServer *gotesttelnet.Server
-	port         int
+	stype      timelinemanager.StorageType
+	ttype      timelinemanager.TransportType
+	tname      transportName
+	backendMap map[transportName]interface{}
+	port       int
+}
+
+func (sc *storageConfig) getHTTPServer(name transportName) *gotesthttp.Server {
+
+	return sc.backendMap[name].(*gotesthttp.Server)
+}
+
+func (sc *storageConfig) getTCPServer(name transportName) *gotestcpudp.TCPServer {
+
+	return sc.backendMap[name].(*gotestcpudp.TCPServer)
+}
+
+func (sc *storageConfig) getUDPServer(name transportName) *gotestcpudp.UDPServer {
+
+	return sc.backendMap[name].(*gotestcpudp.UDPServer)
 }
 
 func (sc *storageConfig) Close() {
 
-	if sc.httpServer != nil {
-		sc.httpServer.Close()
-	}
+	for _, v := range sc.backendMap {
 
-	if sc.telnetServer != nil {
-		sc.telnetServer.Stop()
+		if v, ok := v.(*gotesthttp.Server); ok {
+			v.Close()
+			continue
+		}
+
+		if v, ok := v.(*gotestcpudp.TCPServer); ok {
+			v.Stop()
+			continue
+		}
+
+		if v, ok := v.(*gotestcpudp.UDPServer); ok {
+			v.Stop()
+			continue
+		}
 	}
 }
 
 func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, configs ...*storageConfig) *timelinemanager.Configuration {
 
 	backends := []timelinemanager.BackendItem{}
+	httpTransportConfsMap := map[string]timelinemanager.HTTPTransportConfigExt{}
+	tcpTransportConfsMap := map[string]timelinemanager.OpenTSDBTransportConfigExt{}
+	udpTransportConfsMap := map[string]timelinemanager.UDPTransportConfigExt{}
 
 	for _, conf := range configs {
 
-		if conf.ttype == timelinemanager.HTTP {
+		conf.backendMap = map[transportName]interface{}{}
+
+		if conf.ttype == timelinemanager.HTTPTransport {
 
 			headers := http.Header{}
 			headers.Add("Content-type", "text/plain; charset=utf-8")
 
-			responses := []gotesthttp.ResponseData{
-				{
+			responses := []gotesthttp.ResponseData{}
+
+			if conf.tname == tnNumber {
+
+				responses = append(responses, gotesthttp.ResponseData{
 					RequestData: gotesthttp.RequestData{
-						URI:     "/post",
+						URI:     "/put",
+						Body:    "",
+						Method:  "PUT",
+						Headers: headers,
+					},
+					Status: http.StatusNoContent,
+				})
+
+				httpTransportConfsMap[string(conf.tname)] = timelinemanager.HTTPTransportConfigExt{
+					TransportExt: timelinemanager.TransportExt{
+						Serializer:   timelinemanager.JSONSerializer,
+						JSONMappings: customJSONMapings,
+					},
+					HTTPTransportConfig: timeline.HTTPTransportConfig{
+						ExpectedResponseStatus: http.StatusOK,
+						Method:                 "PUT",
+						ServiceEndpoint:        "/put",
+						CustomSerializerConfig: timeline.CustomSerializerConfig{
+							TimestampProperty: "timestamp",
+							ValueProperty:     "value",
+						},
+					},
+				}
+
+			} else if conf.tname == tnText {
+				responses = append(responses, gotesthttp.ResponseData{
+					RequestData: gotesthttp.RequestData{
+						URI:     "/text",
 						Body:    "",
 						Method:  "POST",
 						Headers: headers,
 					},
 					Status: http.StatusOK,
-				},
+				})
+
+				httpTransportConfsMap[string(conf.tname)] = timelinemanager.HTTPTransportConfigExt{
+					TransportExt: timelinemanager.TransportExt{
+						Serializer:   timelinemanager.JSONSerializer,
+						JSONMappings: customJSONMapings,
+					},
+					HTTPTransportConfig: timeline.HTTPTransportConfig{
+						ExpectedResponseStatus: http.StatusNoContent,
+						Method:                 "POST",
+						ServiceEndpoint:        "/text",
+						CustomSerializerConfig: timeline.CustomSerializerConfig{
+							TimestampProperty: "timestamp",
+							ValueProperty:     "text",
+						},
+					},
+				}
 			}
 
 			conf.port = gotest.GeneratePort()
 
-			conf.httpServer = gotesthttp.NewServer(testHost, conf.port, channelSize, responses)
+			conf.backendMap[conf.tname] = gotesthttp.NewServer(testHost, conf.port, channelSize, responses)
 
-		} else if conf.ttype == timelinemanager.OpenTSDB {
+		} else if conf.ttype == timelinemanager.OpenTSDBTransport {
 
-			conf.telnetServer, conf.port = gotesttelnet.NewServer(
-				&gotesttelnet.Configuration{
-					Host:               testHost,
-					MessageChannelSize: channelSize,
-					ReadBufferSize:     bufferSize,
-					ReadTimeout:        requestTimeout * time.Second,
+			tcpTransportConfsMap[string(conf.tname)] = timelinemanager.OpenTSDBTransportConfigExt{
+				OpenTSDBTransportConfig: timeline.OpenTSDBTransportConfig{
+					TCPUDPTransportConfig: timeline.TCPUDPTransportConfig{
+						MaxReconnectionRetries: 3,
+						ReconnectionTimeout:    funks.Duration{Duration: 100 * time.Millisecond},
+					},
+					MaxReadTimeout: funks.Duration{Duration: requestTimeout * time.Second},
+					ReadBufferSize: bufferSize,
+				},
+			}
+
+			conf.backendMap[conf.tname], conf.port = gotestcpudp.NewTCPServer(
+				&gotestcpudp.TCPConfiguration{
+					ServerConfiguration: gotestcpudp.ServerConfiguration{
+						Host:               testHost,
+						MessageChannelSize: channelSize,
+						ReadBufferSize:     bufferSize,
+					},
+					ReadTimeout: requestTimeout * time.Second,
 				},
 				true,
 			)
+		} else if conf.ttype == timelinemanager.UDPTransport {
 
+			udpTransportConfsMap[string(conf.tname)] = timelinemanager.UDPTransportConfigExt{
+				UDPTransportConfig: timeline.UDPTransportConfig{
+					TCPUDPTransportConfig: timeline.TCPUDPTransportConfig{
+						MaxReconnectionRetries: 3,
+						ReconnectionTimeout:    funks.Duration{Duration: 100 * time.Millisecond},
+					},
+				},
+			}
+
+			conf.backendMap[conf.tname], conf.port = gotestcpudp.NewUDPServer(
+				&gotestcpudp.ServerConfiguration{
+					Host:               testHost,
+					MessageChannelSize: channelSize,
+					ReadBufferSize:     bufferSize,
+				},
+				true,
+			)
 		} else {
 			panic("transport type is not defined")
 		}
@@ -95,7 +209,7 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 			},
 			CycleDuration: funks.Duration{Duration: cycleDuration * time.Millisecond},
 			Storage:       conf.stype,
-			Transport:     string(conf.ttype),
+			Transport:     string(conf.tname),
 		})
 	}
 
@@ -111,28 +225,9 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 			TransportBufferSize:  bufferSize,
 			TimeBetweenBatches:   funks.Duration{Duration: 10 * time.Millisecond},
 		},
-		HTTPTransports: map[string]timelinemanager.HTTPTransportConfigExt{
-			"http": {
-				HTTPTransportConfig: timeline.HTTPTransportConfig{
-					ExpectedResponseStatus: 200,
-					Method:                 "POST",
-					ServiceEndpoint:        "/post",
-					TimestampProperty:      "timestamp",
-					ValueProperty:          "value",
-				},
-				JSONMappings: customJSONMapings,
-			},
-		},
-		OpenTSDBTransports: map[string]timelinemanager.OpenTSDBTransportConfigExt{
-			"opentsdb": {
-				OpenTSDBTransportConfig: timeline.OpenTSDBTransportConfig{
-					MaxReadTimeout:         funks.Duration{Duration: requestTimeout * time.Second},
-					MaxReconnectionRetries: 3,
-					ReadBufferSize:         bufferSize,
-					ReconnectionTimeout:    funks.Duration{Duration: 100 * time.Millisecond},
-				},
-			},
-		},
+		HTTPTransports:     httpTransportConfsMap,
+		OpenTSDBTransports: tcpTransportConfsMap,
+		UDPTransports:      udpTransportConfsMap,
 	}
 
 	return c
@@ -209,7 +304,7 @@ func testOpenTSDBMessage(t *testing.T, function string, tm *timelinemanager.Inst
 		return false
 	}
 
-	message := <-conf.telnetServer.MessageChannel()
+	message := <-conf.getTCPServer(tnOpenTSDB).MessageChannel()
 
 	return assert.True(t,
 		regexp.MustCompile(
@@ -225,8 +320,9 @@ func TestOpenTSDB(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.OpenTSDB,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
 		},
 	}
 
@@ -237,10 +333,10 @@ func TestOpenTSDB(t *testing.T) {
 
 	defer closeAll(tm, configs)
 
-	testOpenTSDBMessage(t, "TestOpenTSDB", tm, timelinemanager.Normal, timelinemanager.RawOpenTSDB, configs[0])
+	testOpenTSDBMessage(t, "TestOpenTSDB", tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[0])
 }
 
-func testSendHTTPMessage(
+func testSendJSONMessage(
 	t *testing.T,
 	function string,
 	tm *timelinemanager.Instance,
@@ -294,19 +390,49 @@ func testSendHTTPMessage(
 	return
 }
 
+func testRequest(t *testing.T, req *gotesthttp.RequestData, number bool) bool {
+
+	if number {
+
+		if !assert.Equalf(t, "/put", req.URI, "expected same uri: %s", req.Body) {
+			return false
+		}
+
+		return assert.Equalf(t, "PUT", req.Method, "expected same method: %s", req.Body)
+	}
+
+	if !assert.Equalf(t, "/text", req.URI, "expected same uri: %s", req.Body) {
+		return false
+	}
+
+	return assert.Equalf(t, "POST", req.Method, "expected same method: %s", req.Body)
+}
+
 func testHTTPMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig, number bool) bool {
 
-	metric, value, ok := testSendHTTPMessage(t, function, tm, stype, op, number)
+	metric, value, ok := testSendJSONMessage(t, function, tm, stype, op, number)
 	if !ok {
 		return false
 	}
 
-	message := <-conf.httpServer.RequestChannel()
+	var httpServer *gotesthttp.Server
+	if number {
+		httpServer = conf.getHTTPServer(tnNumber)
+	} else {
+		httpServer = conf.getHTTPServer(tnText)
+	}
+
+	message := gotesthttp.WaitForServerRequest(httpServer, 100*time.Millisecond, 2*time.Second)
 	if !assert.NotNil(t, message, "expected a valid request message") {
 		return false
 	}
 
+	if !testRequest(t, message, number) {
+		return false
+	}
+
 	if number {
+
 		return assert.True(t,
 			regexp.MustCompile(
 				fmt.Sprintf(`\[\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"value":%d?(\.[0]+)\}\]`,
@@ -330,8 +456,14 @@ func TestHTTP(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.HTTP,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnNumber,
+		},
+		{
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnText,
 		},
 	}
 
@@ -342,8 +474,15 @@ func TestHTTP(t *testing.T) {
 
 	defer closeAll(tm, configs)
 
-	testHTTPMessage(t, "TestHTTP", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], true)
-	testHTTPMessage(t, "TestHTTP", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], false)
+	for i := 0; i < gotest.RandomInt(2, 5); i++ {
+		if !testHTTPMessage(t, "TestHTTP", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true) {
+			return
+		}
+
+		if !testHTTPMessage(t, "TestHTTP", tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[1], false) {
+			return
+		}
+	}
 }
 
 func testUnknownStorage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation) {
@@ -373,8 +512,9 @@ func TestStorageNotFound(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.HTTP,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnText,
 		},
 	}
 
@@ -385,7 +525,7 @@ func TestStorageNotFound(t *testing.T) {
 
 	defer closeAll(tm, configs)
 
-	testUnknownStorage(t, "TestStorageNotFound", tm, timelinemanager.Archive, timelinemanager.RawHTTP)
+	testUnknownStorage(t, "TestStorageNotFound", tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON)
 }
 
 // TestTransportNotSupported - creates a new manager and tests for a unknown transport
@@ -393,8 +533,9 @@ func TestTransportNotSupported(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.OpenTSDB,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
 		},
 	}
 
@@ -405,33 +546,7 @@ func TestTransportNotSupported(t *testing.T) {
 
 	defer closeAll(tm, configs)
 
-	testUnknownTransport(t, "TestTransportNotSupported", tm, timelinemanager.Normal, timelinemanager.RawHTTP, true, false)
-}
-
-// TestBothTransports - creates a new manager and tests http and opentsdb integration (no errors)
-func TestBothTransports(t *testing.T) {
-
-	configs := []*storageConfig{
-		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.HTTP,
-		},
-		{
-			stype: timelinemanager.Archive,
-			ttype: timelinemanager.OpenTSDB,
-		},
-	}
-
-	tm, ok := createTimelineManager(t, nil, configs...)
-	if !ok {
-		return
-	}
-
-	defer closeAll(tm, configs)
-
-	testHTTPMessage(t, "TestBothTransports", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], true)
-	testHTTPMessage(t, "TestBothTransports", tm, timelinemanager.Normal, timelinemanager.RawHTTP, configs[0], false)
-	testOpenTSDBMessage(t, "TestBothTransports", tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, configs[1])
+	testUnknownTransport(t, "TestTransportNotSupported", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, true, false)
 }
 
 // TestBothTransportsWithErrors - creates a new manager and tests http and opentsdb integration (some errors)
@@ -439,12 +554,14 @@ func TestBothTransportsWithErrors(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Archive,
-			ttype: timelinemanager.HTTP,
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnNumber,
 		},
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.OpenTSDB,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
 		},
 	}
 
@@ -457,12 +574,12 @@ func TestBothTransportsWithErrors(t *testing.T) {
 
 	funcName := "TestBothTransportsWithErrors"
 
-	testUnknownStorage(t, funcName, tm, customStorage, timelinemanager.RawHTTP)
-	testHTTPMessage(t, funcName, tm, timelinemanager.Archive, timelinemanager.RawHTTP, configs[0], true)
-	testUnknownTransport(t, funcName, tm, timelinemanager.Archive, timelinemanager.RawOpenTSDB, true, true)
-	testHTTPMessage(t, funcName, tm, timelinemanager.Archive, timelinemanager.RawHTTP, configs[0], false)
-	testOpenTSDBMessage(t, funcName, tm, timelinemanager.Normal, timelinemanager.RawOpenTSDB, configs[1])
-	testUnknownTransport(t, funcName, tm, timelinemanager.Normal, timelinemanager.RawHTTP, true, true)
+	testUnknownStorage(t, funcName, tm, customStorage, timelinemanager.RawJSON)
+	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true)
+	testUnknownTransport(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, true, true)
+	testHTTPMessage(t, funcName, tm, timelinemanager.ArchiveStorage, timelinemanager.RawJSON, configs[0], true)
+	testOpenTSDBMessage(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawOpenTSDB, configs[1])
+	testUnknownTransport(t, funcName, tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, true, true)
 }
 
 // TestSameBackendConfiguration - creates a new manager duplicating some backend
@@ -470,16 +587,19 @@ func TestSameBackendConfiguration(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Archive,
-			ttype: timelinemanager.HTTP,
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnText,
 		},
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.OpenTSDB,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
 		},
 		{
-			stype: timelinemanager.Archive,
-			ttype: timelinemanager.OpenTSDB,
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
 		},
 	}
 
@@ -505,8 +625,9 @@ func TestCustomJSONMapping(t *testing.T) {
 
 	configs := []*storageConfig{
 		{
-			stype: timelinemanager.Normal,
-			ttype: timelinemanager.HTTP,
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnNumber,
 		},
 	}
 
@@ -548,7 +669,7 @@ func TestCustomJSONMapping(t *testing.T) {
 
 	err := tm.SendCustomJSON(
 		"TestCustomJSONMapping",
-		timelinemanager.Normal,
+		timelinemanager.NormalStorage,
 		"custom",
 		"tags.tag1", "customVal1",
 		"tags.tag3", "3",
@@ -558,7 +679,7 @@ func TestCustomJSONMapping(t *testing.T) {
 		return
 	}
 
-	message := <-configs[0].httpServer.RequestChannel()
+	message := <-configs[0].getHTTPServer(tnNumber).RequestChannel()
 	if !assert.NotNil(t, message, "expected a valid request message") {
 		return
 	}
@@ -580,4 +701,87 @@ func TestCustomJSONMapping(t *testing.T) {
 		actual,
 		"expected same message",
 	)
+}
+
+func testUDPMessage(t *testing.T, function string, tm *timelinemanager.Instance, stype timelinemanager.StorageType, op timeline.FlatOperation, conf *storageConfig) bool {
+
+	metric, value, ok := testSendJSONMessage(t, function, tm, stype, op, true)
+	if !ok {
+		return false
+	}
+
+	message := <-conf.getUDPServer(tnUDP).MessageChannel()
+	if !assert.NotNil(t, message, "expected a valid request message") {
+		return false
+	}
+
+	return assert.True(t,
+		regexp.MustCompile(
+			fmt.Sprintf(`\{"metric":"%s","tags":\{"tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+","tag[1-2]{1}K_[0-9]+":"tag[1-2]{1}V_[0-9]+"\},"timestamp":[0-9]{10},"value":%d?(\.[0]+)\}`,
+				metric, value.(int))).
+			MatchString(message.Message),
+		"expected same message",
+	)
+}
+
+// TestUDP - creates a new manager udp only
+func TestUDP(t *testing.T) {
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.UDPTransport,
+			tname: tnUDP,
+		},
+	}
+
+	tm, ok := createTimelineManager(t, nil, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	for i := 0; i < gotest.RandomInt(5, 10); i++ {
+		testUDPMessage(t, "TestUDP", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0])
+	}
+}
+
+// TestAllTransports - creates a new manager and tests http, opentsdb and udp integrations (no errors)
+func TestAllTransports(t *testing.T) {
+
+	configs := []*storageConfig{
+		{
+			stype: timelinemanager.NormalStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnNumber,
+		},
+		{
+			stype: customStorage,
+			ttype: timelinemanager.HTTPTransport,
+			tname: tnText,
+		},
+		{
+			stype: timelinemanager.ArchiveStorage,
+			ttype: timelinemanager.OpenTSDBTransport,
+			tname: tnOpenTSDB,
+		},
+		{
+			stype: customUDPStorage,
+			ttype: timelinemanager.UDPTransport,
+			tname: tnUDP,
+		},
+	}
+
+	tm, ok := createTimelineManager(t, nil, configs...)
+	if !ok {
+		return
+	}
+
+	defer closeAll(tm, configs)
+
+	testHTTPMessage(t, "TestAllTransports", tm, timelinemanager.NormalStorage, timelinemanager.RawJSON, configs[0], true)
+	testOpenTSDBMessage(t, "TestAllTransports", tm, timelinemanager.ArchiveStorage, timelinemanager.RawOpenTSDB, configs[2])
+	testHTTPMessage(t, "TestAllTransports", tm, customStorage, timelinemanager.RawJSON, configs[1], false)
+	testUDPMessage(t, "TestAllTransports", tm, customUDPStorage, timelinemanager.RawJSON, configs[3])
 }
