@@ -101,10 +101,9 @@ func (tm *Instance) SendT(caller string, stype StorageType, op timeline.FlatOper
 func (tm *Instance) Send(caller string, stype StorageType, op timeline.FlatOperation, value float64, metric string, tags ...interface{}) error {
 
 	err := tm.SendT(caller, stype, op, value, metric, time.Now().Unix(), tags...)
-	if err != nil {
-		return err
-	}
-	return nil
+
+	return err
+
 }
 
 // SendTextT - send a text point with specific timestamp
@@ -147,11 +146,9 @@ func (tm *Instance) SendTextT(caller string, stype StorageType, value, metric st
 func (tm *Instance) SendText(caller string, stype StorageType, value, metric string, tags ...interface{}) error {
 
 	err := tm.SendTextT(caller, stype, value, metric, time.Now().Unix(), tags...)
-	if err != nil {
-		return err
-	}
 
-	return nil
+	return err
+
 }
 
 // AccumulateHashedData - accumulates a hashed data
