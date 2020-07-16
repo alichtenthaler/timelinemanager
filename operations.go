@@ -100,9 +100,7 @@ func (tm *Instance) SendT(caller string, stype StorageType, op timeline.FlatOper
 // Send - send a point or do a flatten operation
 func (tm *Instance) Send(caller string, stype StorageType, op timeline.FlatOperation, value float64, metric string, tags ...interface{}) error {
 
-	err := tm.SendT(caller, stype, op, value, metric, time.Now().Unix(), tags...)
-
-	return err
+	return tm.SendT(caller, stype, op, value, metric, time.Now().Unix(), tags...)
 
 }
 
@@ -145,9 +143,7 @@ func (tm *Instance) SendTextT(caller string, stype StorageType, value, metric st
 // SendText - send a text point
 func (tm *Instance) SendText(caller string, stype StorageType, value, metric string, tags ...interface{}) error {
 
-	err := tm.SendTextT(caller, stype, value, metric, time.Now().Unix(), tags...)
-
-	return err
+	return tm.SendTextT(caller, stype, value, metric, time.Now().Unix(), tags...)
 
 }
 
