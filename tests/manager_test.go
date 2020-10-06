@@ -158,7 +158,9 @@ func createTestConf(customJSONMapings []timelinemanager.CustomJSONMapping, confi
 				Host:        testHost,
 				Port:        conf.port,
 				ChannelSize: channelSize,
-				Responses:   responses,
+				Responses: map[string][]gotesthttp.ResponseData{
+					"default": responses,
+				},
 			})
 
 		} else if conf.ttype == timelinemanager.OpenTSDBTransport {

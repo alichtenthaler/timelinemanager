@@ -245,9 +245,11 @@ func (tm *Instance) Start() error {
 		b := &tm.configuration.Backends[i].Backend
 
 		dtc := timeline.DataTransformerConfig{
-			CycleDuration:    tm.configuration.Backends[i].CycleDuration,
-			HashSize:         tm.configuration.HashSize,
-			HashingAlgorithm: tm.configuration.HashingAlgorithm,
+			CycleDuration:        tm.configuration.Backends[i].CycleDuration,
+			HashSize:             tm.configuration.HashSize,
+			HashingAlgorithm:     tm.configuration.HashingAlgorithm,
+			PointValueBufferSize: tm.configuration.PointValueBufferSize,
+			PrintStackOnError:    tm.configuration.PrintStackOnError,
 		}
 
 		f := timeline.NewFlattener(&dtc)

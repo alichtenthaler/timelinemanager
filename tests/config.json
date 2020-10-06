@@ -63,6 +63,7 @@
 	"debugOutput": true,
 	"timeBetweenBatches": "10ms",
 	"printStackOnError": true,
+	"pointValueBufferSize": 512,
 	"openTSDBTransports": {
 		"opentsdb": {
 			"readBufferSize": 64,
