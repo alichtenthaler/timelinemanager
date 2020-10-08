@@ -19,10 +19,9 @@ const customUDPStorage timelinemanager.StorageType = "customUDP"
 
 var expectedConf = timelinemanager.Configuration{
 
-	HashingAlgorithm:     hashing.SHAKE128,
-	HashSize:             6,
-	DataTTL:              *funks.ForceNewStringDuration("2m"),
-	PointValueBufferSize: 512,
+	HashingAlgorithm: hashing.SHAKE128,
+	HashSize:         6,
+	DataTTL:          *funks.ForceNewStringDuration("2m"),
 
 	DefaultTransportConfig: timeline.DefaultTransportConfig{
 		TransportBufferSize:  1024,

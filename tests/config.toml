@@ -9,7 +9,6 @@ debugInput = false
 debugOutput = true
 timeBetweenBatches = "10ms"
 printStackOnError = true
-pointValueBufferSize = 512
 
 [udpTransports.udp]
     reconnectionTimeout = "6s"
